@@ -1,0 +1,27 @@
+{
+  "name": "@mosga/contracts",
+  "version": "0.1.0",
+  "description": "Dependency-light zod schemas + TS types shared by the @mosga/* packages: reader references, ParsedMessage, and the SanitizedSession intermediate envelope.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "SCHEMA.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.3.6"
+  }
+}

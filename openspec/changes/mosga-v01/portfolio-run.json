@@ -1,0 +1,53 @@
+{
+  "pipeline": "auto-decompose",
+  "tier": "A",
+  "parent": "mosga-v01",
+  "decompose": {
+    "status": "taken",
+    "auditedBy": "LEAD",
+    "rationale": "v0.1 spans four distinct capabilities (session readers, sanitizer engine, daemon+review UI, publish pipeline); too large to review as one diff. Slices are independently reviewable packages with clean interface boundaries.",
+    "at": "2026-07-07T00:00:00Z"
+  },
+  "planner": { "role": "planner", "name": "planner", "agentId": "planner@session-30c62c24", "transcript": null },
+  "children": [
+    {
+      "id": "mosga-v01-readers",
+      "pipeline": "small-feature",
+      "prerequisites": [],
+      "mode": "serial",
+      "status": "in_progress",
+      "stage": "ship",
+      "reviewClean": true,
+      "scope": "monorepo skeleton + @mosga/contracts (zod types + SCHEMA.md) + @mosga/session-readers (elftia extraction + CliSourceAdapter + Claude Code adapter)"
+    },
+    {
+      "id": "mosga-v01-sanitizer",
+      "pipeline": "small-feature",
+      "prerequisites": ["mosga-v01-readers"],
+      "mode": "serial",
+      "status": "in_progress",
+      "stage": "propose",
+      "note": "started early per policy: prerequisite readers is implemented + review-clean (shared working tree sufficient); ship/archive of readers runs concurrently",
+      "scope": "@mosga/sanitizer: gitleaks rule ingestion (RE2->JS), custom rules, 3-layer scan, deterministic pseudonym mapping, structure-aware traversal, report generation, non-text flagging"
+    },
+    {
+      "id": "mosga-v01-review-ui",
+      "pipeline": "small-feature",
+      "prerequisites": ["mosga-v01-sanitizer"],
+      "mode": "serial",
+      "status": "pending",
+      "scope": "@mosga/daemon (local HTTP API + serve /ui) + @mosga/ui (React review interface: hit enumeration, batch replace, image flag preview, layered confirmation gate)"
+    },
+    {
+      "id": "mosga-v01-publish",
+      "pipeline": "small-feature",
+      "prerequisites": ["mosga-v01-review-ui"],
+      "mode": "serial",
+      "status": "pending",
+      "scope": "@mosga/publisher: schema export, mandatory local pre-check (shared 3-layer ruleset), GitHub PR flow, data-repo template (CI + canary tests + HF sync), INCIDENT-RESPONSE.md"
+    }
+  ],
+  "frontier": ["mosga-v01-readers"],
+  "delegatedParentStages": ["propose", "apply", "verify", "review-loop", "ship", "archive"],
+  "notes": "Strict serial chain: each child consumes the previous child's package interfaces. Conservative policy: no positive independence proof between adjacent slices (shared monorepo config, shared contracts package), so no parallelism. User pre-approved continuous run through gates (\"全权推进，不用停下\") — gates are reported, not blocked on."
+}

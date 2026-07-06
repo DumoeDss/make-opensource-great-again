@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "strict": true,
+    "declaration": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@mosga/contracts": ["packages/contracts/src/index.ts"],
+      "@mosga/contracts/*": ["packages/contracts/src/*"],
+      "@mosga/session-readers": ["packages/session-readers/src/index.ts"],
+      "@mosga/session-readers/*": ["packages/session-readers/src/*"]
+    }
+  },
+  "exclude": ["node_modules", "dist"]
+}

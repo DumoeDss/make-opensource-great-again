@@ -1,0 +1,16 @@
+{
+  "pipeline": "small-feature",
+  "classification": "small-feature",
+  "tier": "A",
+  "parent": "mosga-v01",
+  "stages": {
+    "propose": { "status": "done", "worker": { "role": "planner", "agentId": "planner@session-30c62c24" }, "validation": "strict-pass" },
+    "apply": { "status": "done", "worker": { "role": "implementer", "agentId": "impl-readers@session-30c62c24" }, "tasks": "28/28", "gates": "typecheck+build+vitest(26)+validate all pass", "deviations": ["npm workspace dep uses * not workspace:* (npm limitation)", "tsup builds; per-package tsconfig is noEmit typecheck-only"] },
+    "verify": { "status": "done", "worker": { "role": "reviewer", "agentId": "reviewer-readers@session-30c62c24" }, "verdict": "NEEDS-FIX", "report": "review-report.md" },
+    "review-loop": { "status": "done", "rounds": 1, "outcome": "CLEAN (Blocker resolved, non-author confirmed; 2 Trivial resolved)", "fixer": "impl-readers", "reReviewer": "reviewer-readers" },
+    "ship": { "status": "in_progress", "worker": { "role": "shipper", "agentId": "shipper-readers@session-30c62c24" } },
+    "archive": { "status": "pending" }
+  },
+  "rounds": 0,
+  "openFindings": []
+}

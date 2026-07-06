@@ -1,0 +1,26 @@
+{
+  "name": "@mosga/session-readers",
+  "version": "0.1.0",
+  "description": "Read-only discovery + parsing of local Claude Code session JSONL, the CliSourceAdapter pluggable interface + registry, the Claude Code adapter, and the non-text-content marker layer.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@mosga/contracts": "*"
+  }
+}
