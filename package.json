@@ -9,8 +9,8 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @mosga/contracts && npm run build -w @mosga/session-readers",
-    "typecheck": "npm run typecheck -w @mosga/contracts && npm run typecheck -w @mosga/session-readers",
+    "build": "npm run build -w @mosga/contracts && npm run build -w @mosga/session-readers && npm run build -w @mosga/sanitizer",
+    "typecheck": "npm run typecheck -w @mosga/contracts && npm run typecheck -w @mosga/session-readers && npm run typecheck -w @mosga/sanitizer",
     "test": "vitest run"
   },
   "devDependencies": {

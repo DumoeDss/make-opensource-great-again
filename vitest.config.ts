@@ -13,6 +13,7 @@ export default defineConfig({
     alias: {
       '@mosga/contracts': src('contracts'),
       '@mosga/session-readers': src('session-readers'),
+      '@mosga/sanitizer': src('sanitizer'),
     },
   },
   test: {
