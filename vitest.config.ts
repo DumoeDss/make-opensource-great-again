@@ -18,9 +18,11 @@ export default defineConfig({
   },
   test: {
     include: [
-      'packages/*/src/**/__tests__/**/*.{test,spec}.ts',
-      'packages/*/src/**/*.{test,spec}.ts',
+      'packages/*/src/**/__tests__/**/*.{test,spec}.{ts,tsx}',
+      'packages/*/src/**/*.{test,spec}.{ts,tsx}',
     ],
+    // Default to node; UI component tests opt into jsdom per-file via a
+    // `// @vitest-environment jsdom` header comment.
     environment: 'node',
   },
 });

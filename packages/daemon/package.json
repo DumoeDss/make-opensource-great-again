@@ -1,0 +1,33 @@
+{
+  "name": "@mosga/daemon",
+  "version": "0.1.0",
+  "description": "Loopback HTTP REST API over @mosga/session-readers + @mosga/sanitizer: stateful review lifecycle (holds the pseudonym mapper), git-remote whitelist recommendation, gated export of the stamped SanitizedSession, static serving of the @mosga/ui build, and the `mosga ui` CLI launcher.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "mosga": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@mosga/contracts": "*",
+    "@mosga/sanitizer": "*",
+    "@mosga/session-readers": "*",
+    "@mosga/ui": "*",
+    "zod": "^4.3.6"
+  }
+}
