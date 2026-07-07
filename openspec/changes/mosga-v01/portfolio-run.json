@@ -51,7 +51,7 @@
       "status": "done",
       "reviewClean": true,
       "shipped": "01941e3",
-      "archived": "openspec/changes/archive/2026-07-07-mosga-v01-publish/",
+      "archived": "openspec/changes/archive/2026-07-07-mosga-v01-publish/ (commit d5fde7e)",
       "scope": "@mosga/publisher: schema export, mandatory local pre-check (shared 3-layer ruleset), GitHub PR flow, data-repo template (CI + canary tests + HF sync), INCIDENT-RESPONSE.md"
     }
   ],
