@@ -1,0 +1,31 @@
+{
+  "name": "@mosga/publisher",
+  "version": "0.1.0",
+  "description": "Closes the v0.1 loop: serialize a stamped SanitizedSession to the on-disk JSONL dataset format, run the mandatory local pre-check (re-scan the exact bytes with the shared @mosga/sanitizer ruleset and hard-refuse on any blocking finding), and prepare a GitHub PR contribution (gh when present, exact commands otherwise).",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "mosga-publish": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@mosga/contracts": "*",
+    "@mosga/sanitizer": "*",
+    "zod": "^4.3.6"
+  }
+}

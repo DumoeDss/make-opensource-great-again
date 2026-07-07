@@ -1,0 +1,22 @@
+DATASET LICENSE — PLACEHOLDER (Open Question 2, 待定)
+=====================================================
+
+The license for the *data* in this repository is NOT YET DECIDED. This file is a
+placeholder the initiator MUST replace before the repository accepts public
+contributions.
+
+Candidates under consideration:
+  - CC-BY-4.0        (Creative Commons Attribution)
+  - ODC-BY-1.0       (Open Data Commons Attribution)
+  - Apache-2.0 (data)
+
+Notes:
+  - The dataset license is SEPARATE from the code license. The scaffold's code
+    (scripts, CI workflow) is MIT (see the mosga monorepo LICENSE); this file
+    governs the contributed session records under `data/`.
+  - Contributors attest (in the PR body) that they are contributing their own
+    data and consent to its inclusion under the license finally chosen here.
+  - Until this placeholder is replaced with a real license, treat all contributed
+    data as "all rights reserved" and do NOT redistribute it.
+
+REPLACE THIS FILE with the chosen license text before launch.

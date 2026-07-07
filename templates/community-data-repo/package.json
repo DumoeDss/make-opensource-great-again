@@ -1,0 +1,17 @@
+{
+  "name": "mosga-community-data",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Community dataset repository scaffold. CI re-scans every incoming record with the PINNED @mosga/sanitizer engine (byte-identical to the contributor's local pre-check), and a canary self-test proves the gate is alive on every run.",
+  "license": "MIT",
+  "scripts": {
+    "scan:canary": "node scripts/scan-canary.mjs",
+    "scan:changed": "node scripts/scan-changed.mjs"
+  },
+  "comment": "The @mosga/sanitizer and @mosga/publisher versions below are PINNED EXACTLY (no ^ / ~) to the sanitizerPackageVersion recorded in contributors' provenance stamps. This is the m3 invariant: CI must re-scan with a byte-identical engine, not merely the same rule text. Bump these only in lockstep with a coordinated ruleset/engine release.",
+  "dependencies": {
+    "@mosga/publisher": "0.1.0",
+    "@mosga/sanitizer": "0.1.0"
+  }
+}

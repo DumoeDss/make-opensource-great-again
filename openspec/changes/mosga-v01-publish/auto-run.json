@@ -1,0 +1,16 @@
+{
+  "pipeline": "small-feature",
+  "classification": "small-feature",
+  "tier": "A",
+  "parent": "mosga-v01",
+  "stages": {
+    "propose": { "status": "done", "worker": { "role": "planner", "agentId": "planner@session-30c62c24" }, "validation": "strict-pass" },
+    "apply": { "status": "done", "worker": { "role": "implementer", "agentId": "impl-publish@session-30c62c24" }, "tasks": "24/24", "gates": "typecheck+build+vitest(125)+validate-strict all pass; canary-refusal test passes; CLI precheck exits 1 on canary" },
+    "verify": { "status": "done", "worker": { "role": "reviewer", "agentId": "reviewer-publish@session-30c62c24" }, "verdict": "NEEDS-FIX", "findings": "1 Blocker (pre-check scans strict subset of published bytes — meta.*/projectKey unscanned, PoC-proven), 2 Major (projectKey deanon leak, CI version-parity never verified), 1 Minor", "report": "review-report.md" },
+    "review-loop": { "status": "done", "rounds": 2, "outcome": "CLEAN (round1: B1 Blocker + M1/M2 resolved+confirmed; round2: new Major M2b resolved+confirmed). All 5 findings across both rounds verified by non-author reviewer.", "round2Note": "impl-publish authored parity.ts core then DIED (monthly spend-limit) leaving tests RED; LEAD completed the fix (M2b regression tests + fail-closed missing-sidecar) and fixed the trivial log-wording nit inline; reviewer-publish (non-author) confirmed CLEAN", "acceptedKnown": ["cross-slice: same field-coverage blind spot in shipped sanitizer scan + review-ui human gate — publish raw-bytes backstop closes the PUBLISH path; broader sanitizer coverage widening recommended as a SEPARATE follow-up change (do NOT retro-expand shipped slices silently)"], "fixer": "impl-publish (died) + LEAD completion", "reReviewer": "reviewer-publish" },
+    "ship": { "status": "pending" },
+    "archive": { "status": "pending" }
+  },
+  "rounds": 0,
+  "openFindings": []
+}

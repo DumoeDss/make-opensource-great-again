@@ -37,9 +37,10 @@
       "pipeline": "small-feature",
       "prerequisites": ["mosga-v01-sanitizer"],
       "mode": "serial",
-      "status": "in_progress",
-      "stage": "ship+archive",
+      "status": "done",
       "reviewClean": true,
+      "shipped": "57ecbc5",
+      "archived": "openspec/changes/archive/2026-07-07-mosga-v01-review-ui/ (commit d5f0f0d)",
       "scope": "@mosga/daemon (local HTTP API + serve /ui) + @mosga/ui (React review interface: hit enumeration, batch replace, image flag preview, layered confirmation gate)"
     },
     {
@@ -48,12 +49,12 @@
       "prerequisites": ["mosga-v01-review-ui"],
       "mode": "serial",
       "status": "in_progress",
-      "stage": "propose",
-      "note": "started per policy: prerequisite review-ui implemented + review-clean; final slice",
+      "stage": "apply",
+      "note": "final slice; propose done strict-pass; m3 accepted-known resolved here via sanitizerPackageVersion pin",
       "scope": "@mosga/publisher: schema export, mandatory local pre-check (shared 3-layer ruleset), GitHub PR flow, data-repo template (CI + canary tests + HF sync), INCIDENT-RESPONSE.md"
     }
   ],
-  "frontier": ["mosga-v01-review-ui"],
+  "frontier": ["mosga-v01-publish"],
   "delegatedParentStages": ["propose", "apply", "verify", "review-loop", "ship", "archive"],
   "notes": "Strict serial chain: each child consumes the previous child's package interfaces. Conservative policy: no positive independence proof between adjacent slices (shared monorepo config, shared contracts package), so no parallelism. User pre-approved continuous run through gates (\"全权推进，不用停下\") — gates are reported, not blocked on."
 }

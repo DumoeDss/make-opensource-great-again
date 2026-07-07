@@ -1,0 +1,54 @@
+name: scan
+
+# Re-scan every incoming record with the PINNED @mosga/sanitizer engine — the
+# verification defense that mirrors the contributor's local pre-check with a
+# byte-identical engine (the m3 invariant). A blocking finding fails the check,
+# so a leaked secret can never merge. Runs on PRs that touch dataset records.
+
+on:
+  pull_request:
+    paths:
+      - 'data/**'
+      - 'tests/canary/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
+
+# Least privilege: the scan only needs to read the code.
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history, so PR base diff works)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Installs @mosga/sanitizer + @mosga/publisher at the EXACT pinned version
+      # from package.json / package-lock.json — the same engine that produced the
+      # contributor's provenance stamp.
+      - name: Install pinned engine
+        run: npm ci
+
+      # Gate self-test: the fake canaries MUST be caught. A miss means the scan
+      # is broken; fail before trusting any record verdict.
+      - name: Gate self-test (canaries must be caught)
+        run: npm run scan:canary
+
+      # Scan the records changed by THIS PR. Any blocking finding fails the job.
+      - name: Scan changed records
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          CHANGED="$(git diff --name-only "$BASE_SHA"...HEAD -- 'data/**/*.jsonl' || true)"
+          echo "Changed record files:"
+          echo "$CHANGED"
+          # Word-splitting is intentional: pass each changed file as an argument.
+          node scripts/scan-changed.mjs $CHANGED

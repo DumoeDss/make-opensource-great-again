@@ -1,0 +1,16 @@
+[
+  {
+    "id": "example-internal-hostname",
+    "description": "Example community-wide Layer-2 rule. Rename this file to sanitizer.custom-rules.json to activate. Rules are ADDITIVE — they only ever catch more; they never allow a secret through.",
+    "kind": "regex",
+    "pattern": "internal\\.example\\.invalid",
+    "replacement": "<INTERNAL_HOST>"
+  },
+  {
+    "id": "example-literal-codename",
+    "description": "A literal match example (matched verbatim).",
+    "kind": "literal",
+    "pattern": "Project Nightingale",
+    "replacement": "<CODENAME>"
+  }
+]
