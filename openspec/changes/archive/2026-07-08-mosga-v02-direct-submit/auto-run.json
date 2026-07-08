@@ -8,8 +8,8 @@
     "apply": { "status": "done", "worker": { "role": "implementer", "agentName": "impl-v02-s2" }, "note": "29/29 tasks ticked; LEAD independently verified typecheck+build green, 181/181 tests (was 155), validate --strict clean; Task-1 cost gate: GO, Mode B default (measured median $0.065, p90 $0.34, max $1.56; Mode A disqualified ~$4.9k max)" },
     "verify": { "status": "done", "worker": { "role": "reviewer", "agentName": "rev-v02-s2" }, "note": "APPROVE WITH FINDINGS: 0B/1M/2m/2T; all 4 security invariants CLEAN and test-backed; review-report.md written" },
     "review-loop": { "status": "done", "rounds": 1, "note": "Round 1: 0B/1M/2m/2T -> fixes by original author (impl-v02-s2, warm). Round 2 delta re-review by rev-v02-s2 (non-author): CLEAN, all findings resolved, no security regression; backstop confirmed to scan post-fold bytes. Tests 184/184. Accepted-known: PROVIDER_PRICING table only carries deepseek today (others disclose pricingSource:'default'); untracked tauri-shell scaffold out of scope." },
-    "ship": { "status": "in_progress", "worker": { "role": "shipper", "agentName": "ship-v02-s1", "continuation": "warm SendMessage @11% ctx" } },
-    "archive": { "status": "pending" }
+    "ship": { "status": "done", "worker": { "role": "shipper", "agentName": "ship-v02-s1", "continuation": "warm SendMessage @11% ctx" }, "note": "commit 19f774f + ship-log f75869d pushed to origin/main; all pre-flight gates green (184/184)" },
+    "archive": { "status": "in_progress", "worker": { "role": "shipper", "agentName": "ship-v02-s1", "continuation": "warm SendMessage @14% ctx" } }
   },
   "rounds": 1,
   "openFindings": []

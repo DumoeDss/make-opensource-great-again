@@ -3,9 +3,7 @@
 ## Purpose
 
 Defines the `@mosga/daemon` package: a loopback-only local HTTP server that exposes session enumeration, the stateful review lifecycle (scan, disposition, batch, preview, gated export), and same-origin static serving of the `@mosga/ui` review interface plus its CLI launcher.
-
 ## Requirements
-
 ### Requirement: Loopback-only HTTP server
 
 The `@mosga/daemon` package SHALL run an HTTP server bound to `127.0.0.1` only, on a configurable port defaulting to 8899. It SHALL NOT bind a non-loopback interface. v0.1 has no authentication; the single-local-user threat model SHALL be documented in the package.
@@ -131,3 +129,41 @@ The package SHALL include API integration tests that drive the endpoints against
 
 - **WHEN** a test creates a review from a fake fixture with planted fake secrets, dispositions every blocking finding and non-text item, and exports
 - **THEN** the API returns a locked gate before completion and a stamped `SanitizedSession` after, using the real sanitizer engine
+
+### Requirement: Provider list endpoint
+
+The daemon SHALL expose `GET /api/providers` returning the open-model provider presets (from `@omnicross/contracts`) plus any user-added targets, with id, display name, models, and API format only. It SHALL NEVER return API keys.
+
+#### Scenario: Providers are listed without keys
+
+- **WHEN** a client requests `GET /api/providers`
+- **THEN** the response lists selectable providers and their models, and contains no key material
+
+### Requirement: Submission cost-estimate endpoint
+
+The daemon SHALL expose `POST /api/reviews/:reviewId/submit/estimate` taking a target provider, model, and replay mode, returning a token-cost estimate for that review WITHOUT sending anything. It SHALL 404 for an unknown review.
+
+#### Scenario: Estimate returns without sending
+
+- **WHEN** a client posts an estimate request for a known review with a provider, model, and mode
+- **THEN** a token estimate is returned and no provider request is made
+
+### Requirement: Gated submission endpoint
+
+The daemon SHALL expose `POST /api/reviews/:reviewId/submit` that derives the stamped session from the held review state (as the export route does) and drives 出口② submission. It SHALL return 409 when the gate is locked, 422 when consent is missing or invalid or its content hash mismatches, a block error when the pre-send backstop finds a surviving blocking finding, and otherwise a key-free `SubmissionReceipt`. It SHALL 404 for an unknown review.
+
+#### Scenario: Locked gate returns 409
+
+- **WHEN** submit is called for a review whose gate is not unlocked
+- **THEN** the daemon responds 409 with the gate and sends nothing
+
+#### Scenario: Invalid consent returns 422
+
+- **WHEN** submit is called without valid, content-bound consent
+- **THEN** the daemon responds 422 and sends nothing
+
+#### Scenario: Successful submit returns a key-free receipt
+
+- **WHEN** submit is called on an unlocked review with valid consent and the backstop passes
+- **THEN** the daemon replays to the provider and returns a `SubmissionReceipt` that contains no API key
+
