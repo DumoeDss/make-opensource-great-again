@@ -47,7 +47,15 @@ Excluded (left untracked, scaffold for a later slice):
 - **Message:** `feat(direct-submit): 出口② API direct-submit — consent-gated replay with outbound raw-bytes backstop (mosga-v02-direct-submit)`
 - **Pushed:** `origin/main` updated `3d0bcf6..19f774f` (fast-forward).
 
+## Archive
+
+- **Archived to:** `openspec/changes/archive/2026-07-08-mosga-v02-direct-submit/` (date is UTC-derived by `rasen archive`; local archive date was 2026-07-09 +0800).
+- **Specs synced:** a new `openspec/specs/direct-submit/spec.md` capability spec (7 requirements: gate-unlocked-only consumption, pre-send raw-bytes backstop with no allow-escape, content-bound consent, provider targeting with a never-leaked key, request reconstruction/format conversion, replay modes + cost estimation, contribution meta message) and 3 requirements ADDED to `openspec/specs/review-daemon/spec.md` (provider list, cost-estimate, and gated submission endpoints), appended after the 9 pre-existing requirements with none altered. Totals per `rasen archive --json`: 10 added, 0 modified, 0 removed.
+- **Merge verification:** manually read both merged spec files. `direct-submit/spec.md` matches the delta's 7 requirements verbatim with a Purpose placeholder (`TBD - created by archiving...`, standard for a first-time capability spec). `review-daemon/spec.md` retains all 9 original requirement headings unchanged (`grep -n "^### Requirement"` — 12 total, in original order, 3 new ones appended at the end).
+- **Validation after archive:** `rasen validate --all --json` — 20/23 items pass; both synced specs (`direct-submit`, `review-daemon`) pass with 0 errors. The 3 failing items (`mosga-v01`, `mosga-v02` portfolio-tracking directories with no spec deltas by design, and the untracked `mosga-v02-tauri-shell` scaffold) are pre-existing and unrelated to this archive.
+- **Archive commit hash:** `bc91cb3aeb9314f99d4ac5b965bdeb0e11d1db13` (short: `bc91cb3`) — `chore(openspec): archive mosga-v02-direct-submit`. The lead's uncommitted `auto-run.json` edit (made before this archive ran) moved into the archive directory as-is and is included in this commit unmodified.
+- **Pushed:** `origin/main` updated `f75869d..bc91cb3`.
+
 ## Next Steps (not done in this run)
 
-- Archive: to be performed as a follow-up unit via `/opsx:archive mosga-v02-direct-submit`.
-- Run-state accounting (`openspec/changes/mosga-v02/portfolio-run.json` updates) is owned by the lead, not the shipper, per instruction.
+- Run-state accounting (`openspec/changes/mosga-v02/portfolio-run.json` updates, marking this slice's child status `done` with the shipped+archived commit hashes) is owned by the lead, not the shipper/archiver, per instruction.
