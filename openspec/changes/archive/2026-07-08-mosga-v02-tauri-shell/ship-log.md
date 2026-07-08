@@ -45,8 +45,16 @@ Excluded (gitignored, never staged):
 - **Message:** `feat(desktop): Tauri v2 shell — adopt-or-spawn daemon lifecycle + splash-to-/ui webview (mosga-v02-tauri-shell)`
 - **Pushed:** `origin/main` updated `d156365..57ce32f` (fast-forward).
 
+## Archive
+
+- **Archived to:** `openspec/changes/archive/2026-07-08-mosga-v02-tauri-shell/` (date is UTC-derived by `rasen archive`; local archive date was 2026-07-09 +0800).
+- **Specs synced:** a new `openspec/specs/desktop-shell/spec.md` capability spec (5 requirements: adopt-or-spawn daemon lifecycle with an identity-checked probe, only a spawned daemon is shut down with the shell, webview loads the daemon-served UI behind a status splash, loopback-only/no-remote-content security posture, and the shell build does not gate Rust-less CI) and 1 requirement ADDED to `openspec/specs/review-daemon/spec.md` (a `--no-open` daemon CLI start for the shell), appended after the 12 pre-existing requirements with none altered. Totals per `rasen archive --json`: 6 added, 0 modified, 0 removed.
+- **Merge verification:** manually read both merged spec files. `desktop-shell/spec.md` matches the delta's 5 requirements verbatim with a standard `Purpose: TBD` placeholder for a first-time capability spec. `review-daemon/spec.md` retains all 12 prior requirement headings unchanged and in order (`grep -c "^### Requirement"` — 13 total after this archive, up from 12 after `mosga-v02-direct-submit`), with the new "Daemon CLI supports a no-open start for the shell" requirement cleanly appended at the end.
+- **Validation after archive:** `rasen validate --all --json` — 21/23 items pass; both synced specs (`desktop-shell`, `review-daemon`) pass with 0 errors, as do all 11 other pre-existing specs. The 2 failing items (`mosga-v01`, `mosga-v02` portfolio-tracking directories with no spec deltas by design) are pre-existing and unrelated to this archive. Notably `mosga-v02-tauri-shell` and its scaffold are no longer in the failure list — this was the last untracked slice of the portfolio.
+- **Archive commit hash:** `c5d1b4ad69f2e69571a67dc983965e5bb5b24631` (short: `c5d1b4a`) — `chore(openspec): archive mosga-v02-tauri-shell`. The lead's uncommitted `auto-run.json` edit moved into the archive directory as-is and is included in this commit unmodified.
+- **Pushed:** `origin/main` updated `738ad06..c5d1b4a`.
+
 ## Next Steps (not done in this run)
 
-- **Human GUI smoke test:** an operator must run the 4 scenarios in `smoke-test.md` on a Windows GUI session before the desktop shell is considered field-verified end-to-end; this is out of agent scope by design and was explicitly called out as pending by the round-2 review.
-- Archive: to be performed as a follow-up unit via `/opsx:archive mosga-v02-tauri-shell`.
-- Run-state accounting (`openspec/changes/mosga-v02/portfolio-run.json` updates) is owned by the lead, not the shipper, per instruction. This is the final slice of the mosga-v02 portfolio.
+- **Human GUI smoke test:** an operator must run the 4 scenarios in `smoke-test.md` on a Windows GUI session before the desktop shell is considered field-verified end-to-end; this remains out of agent scope by design and was explicitly called out as pending by the round-2 review. This is the one open item blocking full end-to-end verification of the mosga-v02 portfolio.
+- Run-state accounting (`openspec/changes/mosga-v02/portfolio-run.json` updates, marking this slice's — and the portfolio's — status `done` with the shipped+archived commit hashes) is owned by the lead, not the shipper/archiver, per instruction. This was the final slice of the mosga-v02 portfolio.
