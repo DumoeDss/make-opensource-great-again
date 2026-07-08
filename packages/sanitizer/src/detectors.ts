@@ -46,6 +46,28 @@ const IPV4_RE =
 const IPV6_RE =
   /\b(?:[A-Fa-f0-9]{1,4}:){2,7}[A-Fa-f0-9]{1,4}\b|(?:[A-Fa-f0-9]{1,4}:){1,7}:|::(?:[A-Fa-f0-9]{1,4}:){0,6}[A-Fa-f0-9]{1,4}/g;
 
+// Encoded project-key recognition (mosga-v02) — field-scoped to
+// `session.projectKey` ONLY, never run over arbitrary message text.
+// `encodeProjectPath` maps every non-alphanumeric to `-`, so a home path like
+// `/Users/alice/acme` becomes the dash-encoded slug `-Users-alice-acme` that the
+// slash-anchored PATH_RE/USERNAME_RE above cannot match. Recognize a
+// `Users`/`home` segment sitting in dash-encoded position. Linear (no nested
+// quantifiers), so it respects the ReDoS posture.
+const ENCODED_HOME_SLUG_RE = /(?:^|-)(?:Users|home)-[^-\s]/;
+
+/**
+ * If `projectKey` has the shape of an encoded home path, return the decoded path
+ * used as the pseudonym key; else null. Decoding replaces `-` with `/` so a slug
+ * encoded from a POSIX path collapses to the SAME `<PATH_n>` the raw path is
+ * mapped to when it also appears in `session.cwd` (session-consistency). The
+ * decode is intentionally lossy — its only job is to be a stable, cwd-matching
+ * mapper key, not to reconstruct the exact original path.
+ */
+export function decodeEncodedProjectKey(projectKey: string): string | null {
+  if (!ENCODED_HOME_SLUG_RE.test(projectKey)) return null;
+  return projectKey.replace(/-/g, '/');
+}
+
 export const L3_DETECTORS: Array<{
   category: NormalizationCategory;
   run: (text: string) => RawMatch[];

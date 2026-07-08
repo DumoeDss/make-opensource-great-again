@@ -137,6 +137,21 @@ export const FindingFieldSchema = z.enum([
   'toolResultContent',
   'sessionCwd',
   'sessionTitle',
+  // Session-level identity + provenance envelope fields (all scope:'session',
+  // non-message). Widened coverage so a secret planted in any string-bearing
+  // envelope position becomes a gating finding the human review gate can see,
+  // matching the publisher's raw-bytes backstop. `sessionUpdatedAt` is a number
+  // coerced to string for scanning only (block-only, no apply writer).
+  'schemaVersion',
+  'metaContributorAlias',
+  'metaSourceCli',
+  'metaToolVersion',
+  'metaExportedAt',
+  'metaLicense',
+  'sessionId',
+  'sessionSourceId',
+  'sessionProjectKey',
+  'sessionUpdatedAt',
   // Session-level, non-span marker for engine/ruleset warnings (e.g. a rule that
   // failed to compile on the consumer runtime). Not a text position — apply
   // ignores it — but it lets such a warning surface as a gating finding instead

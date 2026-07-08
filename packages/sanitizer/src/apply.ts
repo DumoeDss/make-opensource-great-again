@@ -232,9 +232,34 @@ export function applyDispositions(
 function readField(session: SanitizedSession, f: Finding): string | undefined {
   const l = f.location;
   if (l.scope === 'session') {
-    if (l.field === 'sessionCwd') return session.session.cwd ?? undefined;
-    if (l.field === 'sessionTitle') return session.session.title ?? undefined;
-    return undefined;
+    switch (l.field) {
+      case 'sessionCwd':
+        return session.session.cwd ?? undefined;
+      case 'sessionTitle':
+        return session.session.title ?? undefined;
+      case 'sessionProjectKey':
+        return session.session.projectKey;
+      case 'sessionId':
+        return session.session.sessionId;
+      case 'sessionSourceId':
+        return session.session.sourceId;
+      case 'schemaVersion':
+        return session.schemaVersion;
+      case 'metaContributorAlias':
+        return session.meta.contributorAlias;
+      case 'metaSourceCli':
+        return session.meta.sourceCli;
+      case 'metaToolVersion':
+        return session.meta.toolVersion;
+      case 'metaExportedAt':
+        return session.meta.exportedAt;
+      case 'metaLicense':
+        return session.meta.license ?? undefined;
+      // rulesetMeta (non-span) and sessionUpdatedAt (number) have no writable
+      // string; a finding there is acknowledge-only.
+      default:
+        return undefined;
+    }
   }
   const msg = session.messages[l.messageIndex ?? -1];
   if (!msg) return undefined;
@@ -265,8 +290,47 @@ function readField(session: SanitizedSession, f: Finding): string | undefined {
 function writeField(session: SanitizedSession, f: Finding, value: string): void {
   const l = f.location;
   if (l.scope === 'session') {
-    if (l.field === 'sessionCwd') session.session.cwd = value;
-    else if (l.field === 'sessionTitle') session.session.title = value;
+    switch (l.field) {
+      case 'sessionCwd':
+        session.session.cwd = value;
+        break;
+      case 'sessionTitle':
+        session.session.title = value;
+        break;
+      case 'sessionProjectKey':
+        session.session.projectKey = value;
+        break;
+      case 'sessionId':
+        session.session.sessionId = value;
+        break;
+      case 'sessionSourceId':
+        session.session.sourceId = value;
+        break;
+      case 'schemaVersion':
+        session.schemaVersion = value;
+        break;
+      case 'metaContributorAlias':
+        session.meta.contributorAlias = value;
+        break;
+      // `sourceCli` is a narrow enum; a human replace/delete writes a sanitized
+      // literal (e.g. a redaction placeholder) intentionally outside the enum,
+      // so cast to land the edit rather than silently no-op (no-op-leak guard).
+      case 'metaSourceCli':
+        session.meta.sourceCli = value as typeof session.meta.sourceCli;
+        break;
+      case 'metaToolVersion':
+        session.meta.toolVersion = value;
+        break;
+      case 'metaExportedAt':
+        session.meta.exportedAt = value;
+        break;
+      case 'metaLicense':
+        session.meta.license = value;
+        break;
+      // rulesetMeta + sessionUpdatedAt (number) have no writer.
+      default:
+        break;
+    }
     return;
   }
   const msg = session.messages[l.messageIndex ?? -1];

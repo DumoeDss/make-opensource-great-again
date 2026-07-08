@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import type { SanitizedSession } from '@mosga/contracts';
 
 import { canonicalJson } from './canonical.js';
-import { L3_DETECTORS } from './detectors.js';
+import { decodeEncodedProjectKey, L3_DETECTORS } from './detectors.js';
 import { shannonEntropy } from './entropy.js';
 import { escapeRegExp } from './ingest.js';
 import { PseudonymMapper } from './pseudonym.js';
@@ -51,6 +51,31 @@ export function collectScanUnits(session: SanitizedSession): ScanUnit[] {
   if (session.session.title) {
     units.push({ field: 'sessionTitle', scope: 'session', text: session.session.title });
   }
+
+  // Session identity + provenance envelope fields. Previously skipped, so a
+  // secret planted here was invisible to the human gate (only the publisher's
+  // raw-bytes backstop caught it, and only on 出口①). A `null`/empty field is
+  // skipped; `meta.sanitized` (boolean) and `meta.sanitizationRulesetVersion`
+  // (null out of readers) are non-string and stay backstop-only.
+  const meta = session.meta;
+  const info = session.session;
+  const sessionStrings: Array<[FindingField, string | null | undefined]> = [
+    ['schemaVersion', session.schemaVersion],
+    ['metaContributorAlias', meta.contributorAlias],
+    ['metaSourceCli', meta.sourceCli],
+    ['metaToolVersion', meta.toolVersion],
+    ['metaExportedAt', meta.exportedAt],
+    ['metaLicense', meta.license],
+    ['sessionId', info.sessionId],
+    ['sessionSourceId', info.sourceId],
+    ['sessionProjectKey', info.projectKey],
+  ];
+  for (const [field, text] of sessionStrings) {
+    if (text) units.push({ field, scope: 'session', text });
+  }
+  // `updatedAt` is a number: coerce to its string form (block-only, no writer —
+  // a number cannot encode a secret as text; scanned for completeness).
+  units.push({ field: 'sessionUpdatedAt', scope: 'session', text: String(info.updatedAt) });
 
   session.messages.forEach((msg, messageIndex) => {
     const base = { scope: 'message' as const, messageIndex, messageUuid: msg.sdkUuid };
@@ -402,6 +427,29 @@ export function scanSession(
             blocking: false,
           });
         }
+      }
+    }
+
+    // Field-scoped encoded-projectKey pseudonymization (mosga-v02). The dash-
+    // encoded home slug is missed by the slash-anchored L3 detectors, so
+    // recognize it here — ONLY for the projectKey field — and emit a single
+    // non-blocking L3 `path` finding over the whole slug, mapped to the session
+    // `<PATH_n>` (shared with `session.cwd` for the same decoded path).
+    if (!timedOut && unit.field === 'sessionProjectKey') {
+      const decoded = decodeEncodedProjectKey(full);
+      if (decoded !== null) {
+        const location = locationOf(unit, { start: 0, end: full.length });
+        findings.push({
+          id: findingId(location, 'path'),
+          layer: 'normalization',
+          ruleId: 'path',
+          category: 'path',
+          location,
+          matchPreview: full,
+          replacementSuggestion: mapper.map('path', decoded),
+          disposition: 'pending',
+          blocking: false,
+        });
       }
     }
 
