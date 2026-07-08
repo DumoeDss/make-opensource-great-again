@@ -30,10 +30,19 @@
       "pipeline": "small-feature",
       "prereqs": ["mosga-v02-direct-submit"],
       "mode": "serial",
-      "status": "in_progress"
+      "status": "done",
+      "ship": "57ce32f",
+      "archive": "c5d1b4a",
+      "archivedPath": "openspec/changes/archive/2026-07-08-mosga-v02-tauri-shell"
     }
   ],
-  "frontier": ["mosga-v02-tauri-shell"],
+  "frontier": [],
+  "portfolioComplete": true,
+  "humanFollowUps": [
+    "GUI smoke test: run the 4 scenarios in openspec/changes/archive/2026-07-08-mosga-v02-tauri-shell/smoke-test.md on a Windows GUI session (spawn lifecycle, close-kills-spawned-only, adopt-running-daemon, foreign-port failure)",
+    "E: drive critically low on space (~2.6GB free after cargo clean) — cargo builds redirected to C: scratchpad this session; free up E: for future work",
+    "Open Questions still pending user decision: dataset license, HF org/repo naming, re-identification consent copy, schema calibration against founder's draft"
+  ],
   "planner": { "role": "planner", "agentName": "planner-v02", "sessionId": "b3912d01-6d86-4dec-8e73-2213e28af4f5" },
   "delegatedParentStages": ["propose", "apply", "verify", "review-loop", "ship", "archive"],
   "userDecisions": {

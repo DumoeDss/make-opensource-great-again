@@ -9,7 +9,7 @@
     "verify": { "status": "done", "worker": { "role": "reviewer", "agentName": "rev-v02-s3" }, "note": "APPROVE WITH FOLLOW-UPS: 0B/1M/2m/2T; kill-safety + adopt/spawn + security posture + CI isolation all CLEAN; review-report.md written" },
     "review-loop": { "status": "done", "rounds": 1, "note": "Round 1: 0B/1M/2m/2T -> fixes by original author (impl-v02-s3, warm). Round 2 delta re-review by rev-v02-s3 (non-author): CLEAN — M1 (symlink entrypoint guard, real-symlink unit test), m1 (orphan window closed, no new races, 2 new cargo tests), m2 (CSP tightened to style-src 'self', splash css externalized). vitest 189/189 + cargo 10/10. Accepted-known: Trivials t1 (adopted state collapsed into running+adopted flag) / t2 (resolve_from_env un-stripped) — cosmetic. Human GUI smoke test (smoke-test.md, 4 scenarios) pending operator — out of agent scope by design." },
     "ship": { "status": "done", "worker": { "role": "shipper", "agentName": "ship-v02-s1", "continuation": "warm SendMessage @17% ctx" }, "note": "commit 57ce32f + ship-log 738ad06 pushed; JS 189/189 + cargo 10/10; no build artifacts on E:; human smoke test pending recorded in ship-log" },
-    "archive": { "status": "in_progress", "worker": { "role": "shipper", "agentName": "ship-v02-s1", "continuation": "warm SendMessage @19.7% ctx" } }
+    "archive": { "status": "done", "worker": { "role": "shipper", "agentName": "ship-v02-s1", "continuation": "warm SendMessage @19.7% ctx" }, "note": "archive commit c5d1b4a + hash-record bc26c90 pushed; specs synced (new desktop-shell capability 5 reqs + review-daemon --no-open req), merge verified, validate clean" }
   },
   "rounds": 0,
   "openFindings": []
