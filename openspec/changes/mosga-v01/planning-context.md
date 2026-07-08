@@ -92,7 +92,7 @@ Repo: `E:\AI\ChatAI\Agents\VibeCodingProjects\elftia\elftia\omnicross`
 
 - D2：不依赖 elftia `@shared/chat-types`；`role`(`user|assistant|system`) 与 `ToolCall`(`{id,name,input,status:'completed'|'error',result?}`) 在 `@mosga/contracts` 本地重定义。
 - D3：electron 依赖仅 `claudeProjectsPaths.ts` 的 `app.getPath('home')`；`encodeProjectPath` 本身无 electron。提取时删 electron，home 用 `os.homedir()||USERPROFILE||HOME`。
-- D5：elftia 解析器**静默丢弃** image/非文本块（渲染器无所谓，本项目禁止——设计文档"标记而非剥离"+"无声截断禁令"）。mosga 必须在 wrapper 里标记非文本块。**slice3 的 ⚠ 逐条预览 UI 依赖这个标记。** 是否保留非文本块原始字节（vs 仅"存在+类型"标记）留给 slice3 定义预览需求时决定，当前倾向仅标记。
+- D5（精确版）：**这不是 elftia 的 bug**——elftia 的 `parseContentBlocks`（`switch` 无 `default`）与 `extractToolResultContent`（非 `text` 块 → `''` 再 `filter(Boolean)` 滤掉）把非文本块从**文本视图**里摊掉，对一个聊天渲染器是合理的有损设计（elftia 的图片走另一条我们没复用的 `read()` 显示路径）。但对本项目是硬伤：设计文档要求"标记而非剥离"+"无声截断禁令"，因为图片没有自动扫描防线、必须让人看见。所以 mosga **不改 elftia 代码**，而是在逐字复用的解析器之上加一层标记 wrapper（`parseClaudeSession`）。**注意：审查真正抓到的 readers Blocker 是我们 wrapper 第一版自己的 bug**——它只扫顶层块，漏了嵌在 `tool_result.content[]` 里的截图（工具返回的图）；已修复为递归进 `tool_result.content[]`，经 `tool_use_id` 把标记落到结果合并进的那条 tool_use 消息上（原始 tool_result 行不 materialize），并对 `isMeta`/无 uuid 等不 materialize 的行兜底到最近邻消息。**slice3 的 ⚠ 逐条预览 UI 依赖这个标记。** 是否保留非文本块原始字节（vs 仅"存在+类型"标记）留给 slice3，当前仅标记。
 
 ### SanitizedSession 信封字段清单（load-bearing schema，`schemaVersion` 版本化）
 

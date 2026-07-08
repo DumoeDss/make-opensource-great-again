@@ -56,6 +56,8 @@
     }
   ],
   "frontier": [],
+  "portfolioComplete": true,
+  "sessionHandoff": { "path": "handoff/lead-1.md", "pct": 0.339, "afterStage": "all-children-archived", "at": "2026-07-07T00:50:00Z" },
   "delegatedParentStages": ["propose", "apply", "verify", "review-loop", "ship", "archive"],
   "notes": "Strict serial chain: each child consumes the previous child's package interfaces. Conservative policy: no positive independence proof between adjacent slices (shared monorepo config, shared contracts package), so no parallelism. User pre-approved continuous run through gates (\"全权推进，不用停下\") — gates are reported, not blocked on."
 }
