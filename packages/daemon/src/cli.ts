@@ -7,21 +7,37 @@
  * so it ADOPTS it (just opens the browser); otherwise it reports the conflict
  * clearly and exits non-zero (design D3 — full adopt-or-spawn negotiation is
  * trimmed to "adopt ours, else fail" for v0.1).
+ *
+ * `--no-open` starts the daemon WITHOUT launching the OS browser, so the Tauri
+ * desktop shell can spawn the daemon and load `/ui` in its own webview (it prints
+ * the URL instead). Loopback-only binding is unchanged in both modes.
  */
 import { spawn } from 'node:child_process';
+import { realpathSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
-import { DEFAULT_PORT, LOOPBACK_HOST, startDaemon } from './server.js';
+import { DEFAULT_PORT, LOOPBACK_HOST, type RunningDaemon, startDaemon } from './server.js';
 
 interface CliArgs {
   port: number;
   command: string;
   help: boolean;
+  noOpen: boolean;
+}
+
+/** Injectable seams so tests can spy the browser opener and daemon start. */
+export interface CliDeps {
+  openBrowser: (url: string) => void;
+  startDaemon: typeof startDaemon;
+  stdout: (line: string) => void;
+  stderr: (line: string) => void;
 }
 
 function parseArgs(argv: string[]): CliArgs {
   let port = Number(process.env.MOSGA_PORT) || DEFAULT_PORT;
   let command = '';
   let help = false;
+  let noOpen = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--port' || arg === '-p') {
@@ -29,13 +45,15 @@ function parseArgs(argv: string[]): CliArgs {
       i += 1;
     } else if (arg.startsWith('--port=')) {
       port = Number(arg.slice('--port='.length));
+    } else if (arg === '--no-open') {
+      noOpen = true;
     } else if (arg === '--help' || arg === '-h') {
       help = true;
     } else if (!command) {
       command = arg;
     }
   }
-  return { port, command, help };
+  return { port, command, help, noOpen };
 }
 
 function openBrowser(url: string): void {
@@ -68,56 +86,104 @@ async function probeMosgaDaemon(port: number): Promise<boolean> {
 const HELP = `mosga ui — local session review daemon
 
 Usage:
-  mosga ui [--port N]
+  mosga ui [--port N] [--no-open]
 
 Options:
   -p, --port N   Port to bind on 127.0.0.1 (default ${DEFAULT_PORT}, or $MOSGA_PORT)
+      --no-open  Start the daemon without opening the OS browser (prints the URL);
+                 used by the desktop shell, which loads /ui in its own webview
   -h, --help     Show this help
 
 The daemon binds loopback only and has no authentication (v0.1 threat model:
 single local user). See the @mosga/daemon README.`;
 
-async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+const defaultDeps: CliDeps = {
+  openBrowser,
+  startDaemon,
+  stdout: (line) => process.stdout.write(line),
+  stderr: (line) => process.stderr.write(line),
+};
+
+/**
+ * Run the `mosga ui` launcher. Returns the started daemon (so callers/tests can
+ * close it) or `undefined` when it adopted/failed/printed help. Deps are
+ * injectable for tests (spy the opener without launching a real browser).
+ */
+export async function run(
+  argv: string[],
+  deps: Partial<CliDeps> = {},
+): Promise<RunningDaemon | undefined> {
+  const { openBrowser: open, startDaemon: start, stdout, stderr } = { ...defaultDeps, ...deps };
+  const args = parseArgs(argv);
   if (args.help || (args.command && args.command !== 'ui')) {
-    process.stdout.write(`${HELP}\n`);
+    stdout(`${HELP}\n`);
     if (args.command && args.command !== 'ui') process.exitCode = 2;
-    return;
+    return undefined;
   }
   if (!Number.isInteger(args.port) || args.port < 0 || args.port > 65535) {
-    process.stderr.write(`Invalid port: ${String(args.port)}\n`);
+    stderr(`Invalid port: ${String(args.port)}\n`);
     process.exitCode = 2;
-    return;
+    return undefined;
   }
 
   const uiUrl = `http://${LOOPBACK_HOST}:${args.port}/ui/`;
 
   try {
-    const daemon = await startDaemon({ port: args.port });
-    process.stdout.write(`mosga daemon listening on ${daemon.url}\n`);
-    process.stdout.write(`Opening ${daemon.url}/ui/ …\n`);
-    openBrowser(`${daemon.url}/ui/`);
+    const daemon = await start({ port: args.port });
+    stdout(`mosga daemon listening on ${daemon.url}\n`);
+    if (args.noOpen) {
+      // The shell loads /ui in its own webview; just advertise the URL.
+      stdout(`Open ${daemon.url}/ui/ in your browser.\n`);
+    } else {
+      stdout(`Opening ${daemon.url}/ui/ …\n`);
+      open(`${daemon.url}/ui/`);
+    }
+    return daemon;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
       const adoptable = await probeMosgaDaemon(args.port);
       if (adoptable) {
-        process.stdout.write(
-          `A mosga daemon is already running on port ${args.port}; adopting it.\n`,
-        );
-        process.stdout.write(`Opening ${uiUrl} …\n`);
-        openBrowser(uiUrl);
-        return;
+        stdout(`A mosga daemon is already running on port ${args.port}; adopting it.\n`);
+        if (args.noOpen) {
+          stdout(`Open ${uiUrl} in your browser.\n`);
+        } else {
+          stdout(`Opening ${uiUrl} …\n`);
+          open(uiUrl);
+        }
+        return undefined;
       }
-      process.stderr.write(
+      stderr(
         `Port ${args.port} is in use by another process (not a mosga daemon). ` +
           `Choose another port with --port N.\n`,
       );
       process.exitCode = 1;
-      return;
+      return undefined;
     }
-    process.stderr.write(`Failed to start daemon: ${(err as Error).message}\n`);
+    stderr(`Failed to start daemon: ${(err as Error).message}\n`);
     process.exitCode = 1;
+    return undefined;
   }
 }
 
-void main();
+/**
+ * Is this module the process entrypoint (the `mosga` bin), rather than an import
+ * (e.g. a test)? `argv1` is the launched path; on macOS/Linux the npm `mosga`
+ * bin is a SYMLINK to `dist/cli.js`, while `importMetaUrl` is realpath-resolved,
+ * so a raw compare never matches — resolve `argv1` through `realpathSync` first.
+ * Falls back to the raw path if `argv1` can't be resolved (e.g. it doesn't exist).
+ */
+export function isEntrypoint(importMetaUrl: string, argv1: string | undefined): boolean {
+  if (!argv1) return false;
+  let resolved = argv1;
+  try {
+    resolved = realpathSync(argv1);
+  } catch {
+    // argv1 may not exist / not be resolvable; fall back to the raw comparison.
+  }
+  return importMetaUrl === pathToFileURL(resolved).href;
+}
+
+// Auto-run only when invoked as the `mosga` bin, not when imported by a test.
+if (isEntrypoint(import.meta.url, process.argv[1])) {
+  void run(process.argv.slice(2));
+}

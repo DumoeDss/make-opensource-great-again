@@ -101,3 +101,26 @@
 **用户已决 ToS（勿再问）**：出口② = 知情同意 + 完整保留；实现 Task 12 回写 office-hours 文档 Open Q3（标记已决，2026-07-09）。
 
 **slice 3（tauri-shell）依赖**：daemon 端点集合在本切片后才稳定（新增 providers/estimate/submit + UI 同意对话框）；壳要包住含出口②投递 UI 的最终界面。
+
+### slice 3: tauri-shell
+
+> 提案已产出并通过 rasen validate（--strict）。产物：`openspec/changes/mosga-v02-tauri-shell/{proposal,design,tasks}.md` + `specs/desktop-shell/spec.md`(新能力,5 ADDED) + `specs/review-daemon/spec.md`(1 ADDED, `--no-open` CLI)。这是 v0.2 收尾切片。
+
+**工具链探测结果（LEAD 硬门，已过）：BUILDABLE，无需 escalate。** 本机：rustc/cargo 1.88.0、rustup 1.28.2、target `x86_64-pc-windows-msvc` 已装、MSVC linker **实测可用**（trivial `cargo build` 编译+链接成功；PATH 上的 `link.exe` 是 Git 的无关，cargo 经 vswhere 自寻 MSVC linker）、WebView2 运行时 134.0.3124.93 已装、Node v24.14.0。**唯一缺**：Tauri CLI（`@tauri-apps/cli`，普通 `npm i -D`，非阻塞）。
+
+**omnicross 复用参考（只读 MIT）**：`omnicross/apps/desktop/src-tauri/src/daemon_runtime.rs` 是 adopt-or-spawn 范本。关键可搬点：identity 探测分类（NoListener/Foreign/Daemon）、`.no_proxy()` 探测客户端（**load-bearing**，系统代理会 502 掉 loopback 探测使活 daemon 看似不存在）、spawn `node <entry> ... `（Windows `CREATE_NO_WINDOW`+stderr piped）、`strip_verbatim`（Windows `\\?\` 前缀 Node 会误判为 UNC → `EISDIR`）、只 tree-kill 自己 spawn 的 child、状态机经 `daemon_status` command 给前端轮询。omnicross 的 `frontendDist` = `packages/ui/dist`（打包全 UI，跨源调 daemon）。
+
+**mosga daemon 实况（已核实）**：bin `mosga`→`dist/cli.js`，命令 `mosga ui [--port N]`，默认端口 8899（`MOSGA_PORT` env / `--port`），loopback-only。**已有** trimmed adopt 协商（探 `/api/health` body `{name:'mosga-daemon',version}`，adopt-or-fail，无 spawn）。**痛点**：`mosga ui` 总是 `openBrowser` → 壳必须能不开浏览器启动。identity 在 **body 非 header**（无 pid）。
+
+**关键决策**：
+1. **唯一 daemon 改动 = `mosga ui --no-open`**（不调 openBrowser）。壳 spawn `node <cli> ui --no-open --port 8899`。identity 复用 body（不加 header，因下条策略不需 pid）。
+2. **adopt-or-spawn 策略（有意偏离 omnicross）**：daemon 有状态（内存 reviews + per-reviewId PseudonymMapper）+ 单用户 → **adopt 任意版本 mosga daemon（不 version-kill）**；**只 tree-kill 自己 spawn 的**；Foreign 占端口 → failed 明确原因（不 adopt 不 kill 不可识别进程）。理由：毁掉进行中的 review 状态比版本偏差更糟。无需 pid 握手。
+3. **webview 策略 = bundle 极小 splash 作 frontendDist，`running` 后导航主 webview 到 `http://127.0.0.1:8899/ui/`**（复用同源 SPA，**零 UI 改动、零 CORS、无重复资产管线**；UI 只 build 一次由 daemon serve，壳只 bundle 几 KB splash）。splash 解决启动 chicken-and-egg（daemon 起来前有状态可显）。**否决**：omnicross 式 bundle 全 UI + 跨源（需 UI 可配 API base + daemon 开 CORS，扩大 daemon 零-CORS 面）。
+4. **固定端口 8899**（匹配 daemon 默认；动态端口需 portfile 握手，单用户不值）。**关端口**：spawn 的关壳即 tree-kill（内存 review 丢失可接受，re-scan 确定性）；adopt 的永不 kill。
+5. **安全**：daemon 不变（loopback+Host allowlist+DNS-rebinding guard+无鉴权单用户）；CSP 仅 `self`+loopback daemon，无远程 host，无 `dangerousRemoteDomainIpcAccess`；壳零 key/secret 处理。
+
+**布局/CI**：新 `apps/desktop/`（不是 packages/，是 app）：`package.json`(private,devDep @tauri-apps/cli)+`splash/`+`src-tauri/`(Cargo.toml/tauri.conf.json/build.rs/src/{lib,daemon_runtime,kill}.rs)。root `workspaces` 加 `apps/*`（wire Tauri CLI）。**shell build 为 opt-in `build:shell`（`tauri build`），不入 root `build`/`typecheck`/`test`**（这些是显式 per-package `-w` 列表 + `vitest run`），故**无 Rust 的 CI 仍绿**。Rust 侧测试用 `cargo test`（非 vitest）。
+
+**可测性（本机）**：headless 可跑 `cargo test`（探测分类/命令解析/strip_verbatim）+ `cargo check`/`build`；`tauri build`(NSIS) 可能首跑下载 NSIS/WebView2 bootstrapper → attempt-and-report 非硬失败；**GUI 行为（启动/adopt/关闭杀 daemon/导航 /ui）需人工冒烟**（agent 无法验 GUI），tasks.md 有清单。
+
+**portfolio 收尾**：三切片提案全部产出并 strict-valid。串行依赖链：sanitizer-coverage（已 ship/archive）→ direct-submit（已 ship/archive）→ tauri-shell（本提案待实现）。

@@ -1,0 +1,15 @@
+{
+  "name": "mosga-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "mosga desktop shell — a Tauri v2 wrapper that adopt-or-spawns the @mosga/daemon and loads its same-origin /ui.",
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "npm --prefix ../.. run build -w @mosga/daemon && tauri dev",
+    "build": "npm --prefix ../.. run build && tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
