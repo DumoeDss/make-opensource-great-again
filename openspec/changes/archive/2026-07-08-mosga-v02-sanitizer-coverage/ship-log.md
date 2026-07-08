@@ -44,7 +44,14 @@ Excluded (left untracked, scaffolds for later slices):
 - **Message:** `feat(sanitizer): envelope field coverage — scan meta.*/session identity fields + projectKey pseudonymization (mosga-v02-sanitizer-coverage)`
 - **Pushed:** `origin/main` updated `902bb41..c834905` (fast-forward; includes both the prior session-handoff commit `89d356c` and this slice's commit `c834905`).
 
+## Archive
+
+- **Archived to:** `openspec/changes/archive/2026-07-08-mosga-v02-sanitizer-coverage/` (date is UTC-derived by `rasen archive`; local ship date was 2026-07-09 +0800).
+- **Specs synced:** `openspec/specs/sanitization-scan/spec.md` (1 requirement MODIFIED — "Structure-aware traversal of the session" now covers `schemaVersion`, `meta.*`, and session identity fields, not only `cwd`/`title` — plus 2 requirements ADDED: envelope-field scan coverage parity with the publish-path raw-bytes backstop, and encoded project-key path pseudonymization) and `openspec/specs/sanitization-apply/spec.md` (2 requirements ADDED: disposition application covers the same session identity/provenance string fields; provenance fields are never auto-mutated outside the stamping step). Totals per `rasen archive --json`: 4 added, 1 modified, 0 removed.
+- **Validation after archive:** `rasen validate --all --json` — both synced specs (`sanitization-scan`, `sanitization-apply`) pass with 0 issues. The 4 failing items in that run (`mosga-v01`, `mosga-v02` portfolio-tracking directories with no spec deltas by design, and the untracked `mosga-v02-direct-submit`/`mosga-v02-tauri-shell` scaffolds) are pre-existing and unrelated to this archive.
+- **Archive commit hash:** `fdea46ce160bbee64c158e92a0e5a20661292a61` (short: `fdea46c`) — `chore(openspec): archive mosga-v02-sanitizer-coverage`.
+- **Pushed:** `origin/main` updated `191788b..fdea46c`.
+
 ## Next Steps (not done in this run)
 
-- Archive: to be performed as a follow-up unit via `/opsx:archive mosga-v02-sanitizer-coverage`, then update `openspec/changes/mosga-v02/portfolio-run.json` to mark this slice's child status as `done` with the shipped commit hash.
-- Run-state accounting (`portfolio-run.json` updates) is owned by the lead, not the shipper, per instruction.
+- Run-state accounting (`openspec/changes/mosga-v02/portfolio-run.json` updates, marking this slice's child status `done` with the shipped+archived commit hashes) is owned by the lead, not the shipper/archiver, per instruction.
