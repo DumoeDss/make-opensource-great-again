@@ -20,17 +20,20 @@
       "pipeline": "small-feature",
       "prereqs": ["mosga-v02-sanitizer-coverage"],
       "mode": "serial",
-      "status": "in_progress"
+      "status": "done",
+      "ship": "19f774f",
+      "archive": "bc91cb3",
+      "archivedPath": "openspec/changes/archive/2026-07-08-mosga-v02-direct-submit"
     },
     {
       "id": "mosga-v02-tauri-shell",
       "pipeline": "small-feature",
       "prereqs": ["mosga-v02-direct-submit"],
       "mode": "serial",
-      "status": "pending"
+      "status": "in_progress"
     }
   ],
-  "frontier": ["mosga-v02-direct-submit"],
+  "frontier": ["mosga-v02-tauri-shell"],
   "planner": { "role": "planner", "agentName": "planner-v02", "sessionId": "b3912d01-6d86-4dec-8e73-2213e28af4f5" },
   "delegatedParentStages": ["propose", "apply", "verify", "review-loop", "ship", "archive"],
   "userDecisions": {

@@ -9,7 +9,7 @@
     "verify": { "status": "done", "worker": { "role": "reviewer", "agentName": "rev-v02-s2" }, "note": "APPROVE WITH FINDINGS: 0B/1M/2m/2T; all 4 security invariants CLEAN and test-backed; review-report.md written" },
     "review-loop": { "status": "done", "rounds": 1, "note": "Round 1: 0B/1M/2m/2T -> fixes by original author (impl-v02-s2, warm). Round 2 delta re-review by rev-v02-s2 (non-author): CLEAN, all findings resolved, no security regression; backstop confirmed to scan post-fold bytes. Tests 184/184. Accepted-known: PROVIDER_PRICING table only carries deepseek today (others disclose pricingSource:'default'); untracked tauri-shell scaffold out of scope." },
     "ship": { "status": "done", "worker": { "role": "shipper", "agentName": "ship-v02-s1", "continuation": "warm SendMessage @11% ctx" }, "note": "commit 19f774f + ship-log f75869d pushed to origin/main; all pre-flight gates green (184/184)" },
-    "archive": { "status": "in_progress", "worker": { "role": "shipper", "agentName": "ship-v02-s1", "continuation": "warm SendMessage @14% ctx" } }
+    "archive": { "status": "done", "worker": { "role": "shipper", "agentName": "ship-v02-s1", "continuation": "warm SendMessage @14% ctx" }, "note": "archive commit bc91cb3 + hash-record 5a1e6b9 pushed; specs synced (10 added: new direct-submit capability 7 reqs + 3 review-daemon routes), merge verified, validate clean" }
   },
   "rounds": 1,
   "openFindings": []
