@@ -14,6 +14,7 @@ export default defineConfig({
       '@mosga/contracts': src('contracts'),
       '@mosga/session-readers': src('session-readers'),
       '@mosga/sanitizer': src('sanitizer'),
+      '@mosga/direct-submit': src('direct-submit'),
     },
   },
   test: {

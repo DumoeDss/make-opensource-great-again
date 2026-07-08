@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@mosga/contracts": "*",
+    "@mosga/direct-submit": "*",
     "@mosga/sanitizer": "*",
     "@mosga/session-readers": "*",
     "@mosga/ui": "*",

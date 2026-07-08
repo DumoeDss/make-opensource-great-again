@@ -3,16 +3,21 @@
  * call is a relative `/api/...` URL — no host, no CORS.
  */
 import type {
+  ContributionConsent,
   CreateReviewResponse,
   Disposition,
   ExportResponse,
   NonTextDisposition,
   NormalizationCategory,
   ProjectsResponse,
+  ProviderTarget,
+  ReplayMode,
   ReportResponse,
   SanitizationReport,
   SessionRef,
   SourceRef,
+  SubmissionReceipt,
+  SubmitEstimate,
 } from './types';
 
 export interface ApiClient {
@@ -34,6 +39,12 @@ export interface ApiClient {
   ): Promise<ReportResponse>;
   getGate(reviewId: string): Promise<SanitizationReport['gate']>;
   exportReview(reviewId: string): Promise<{ ok: true; data: ExportResponse } | { ok: false; gate: SanitizationReport['gate'] }>;
+  listProviders(): Promise<ProviderTarget[]>;
+  estimateSubmit(reviewId: string, providerId: string, model: string, replayMode: ReplayMode): Promise<SubmitEstimate>;
+  submit(
+    reviewId: string,
+    body: { providerId: string; model: string; replayMode: ReplayMode; consent: ContributionConsent },
+  ): Promise<{ ok: true; receipt: SubmissionReceipt } | { ok: false; status: number; error: string }>;
 }
 
 async function json<T>(res: Response): Promise<T> {
@@ -109,6 +120,28 @@ export const apiClient: ApiClient = {
     }
     const data = await json<ExportResponse>(res);
     return { ok: true, data };
+  },
+  async listProviders() {
+    const data = await json<{ providers: ProviderTarget[] }>(await fetch('/api/providers'));
+    return data.providers;
+  },
+  async estimateSubmit(reviewId, providerId, model, replayMode) {
+    return json<SubmitEstimate>(
+      await post(`/api/reviews/${encodeURIComponent(reviewId)}/submit/estimate`, {
+        providerId,
+        model,
+        replayMode,
+      }),
+    );
+  },
+  async submit(reviewId, body) {
+    const res = await post(`/api/reviews/${encodeURIComponent(reviewId)}/submit`, body);
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, status: res.status, error: err.error ?? `request failed: ${res.status}` };
+    }
+    const data = (await res.json()) as { receipt: SubmissionReceipt };
+    return { ok: true, receipt: data.receipt };
   },
 };
 

@@ -15,6 +15,7 @@ import { FindingsTable } from './FindingsTable';
 import { GateBanner } from './GateBanner';
 import { Layer3View } from './Layer3View';
 import { makeContextLookup, NonTextList } from './NonTextList';
+import { SubmitPanel } from './SubmitPanel';
 import { WarningsBanner } from './WarningsBanner';
 
 interface ReviewViewProps {
@@ -25,13 +26,14 @@ interface ReviewViewProps {
   onRestart?: () => void;
 }
 
-type Tab = 'blocking' | 'nontext' | 'l3' | 'export';
+type Tab = 'blocking' | 'nontext' | 'l3' | 'export' | 'submit';
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'blocking', label: 'Blocking findings' },
   { id: 'nontext', label: 'Non-text ⚠' },
   { id: 'l3', label: 'Layer-3 stats' },
   { id: 'export', label: 'Export' },
+  { id: 'submit', label: 'Submit (出口②)' },
 ];
 
 /**
@@ -175,6 +177,7 @@ export function ReviewView({
         )}
         {tab === 'l3' && <Layer3View report={report} onBatchByType={onBatchByType} busy={busy} />}
         {tab === 'export' && <ExportPreview session={exported} />}
+        {tab === 'submit' && <SubmitPanel client={client} reviewId={reviewId} gate={report.gate} />}
       </main>
     </div>
   );

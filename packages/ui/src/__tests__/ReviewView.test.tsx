@@ -20,6 +20,9 @@ function fakeClient(over: Partial<ApiClient> = {}): ApiClient {
     setNonText: vi.fn(),
     getGate: vi.fn(),
     exportReview: vi.fn(),
+    listProviders: vi.fn(),
+    estimateSubmit: vi.fn(),
+    submit: vi.fn(),
     ...over,
   } as ApiClient;
 }

@@ -9,6 +9,23 @@ import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import os from 'node:os';
 
+import {
+  ConsentError,
+  KeyNotConfiguredError,
+  NotStampedError,
+  SubmissionRefusedError,
+  computeContentHash,
+  estimate,
+  fetchTransport,
+  listProviders,
+  resolveMetaVersions,
+  resolveProvider,
+  resolveProviderKey,
+  resolveProviderPricing,
+  submit,
+  type Transport,
+  type UserTarget,
+} from '@mosga/direct-submit';
 import { getAdapter, listAdapters } from '@mosga/session-readers';
 import {
   type CompiledRuleset,
@@ -23,6 +40,7 @@ import {
   setFindingDisposition,
   setNonTextDisposition,
 } from '@mosga/sanitizer';
+import { ContributionConsentSchema, ReplayModeSchema } from '@mosga/contracts';
 import { z } from 'zod';
 
 import { buildEnvelope } from './envelope.js';
@@ -60,6 +78,21 @@ export interface AppOptions {
   maxReviews?: number;
   /** Override the review `exportedAt`/`generatedAt` for deterministic tests. */
   now?: string;
+  /**
+   * Outbound HTTP transport for 出口② direct-submit. Defaults to the real
+   * `fetch` transport; tests inject a mock so no real provider call or key is
+   * ever used.
+   */
+  submitTransport?: Transport;
+  /**
+   * Path to a TRUSTED local JSON key config (providerId -> key) for direct-submit,
+   * loaded server-side only (a flag/env, never a request body or client path —
+   * same trust model as `customRulesPath`). The key is used only as the outbound
+   * auth header and never enters any daemon response.
+   */
+  providerKeyConfigPath?: string;
+  /** User-added provider targets exposed alongside the presets (key-free). */
+  userTargets?: UserTarget[];
 }
 
 export interface App {
@@ -79,6 +112,18 @@ const BatchBody = z.object({
   by: z.enum(['rule', 'type']),
   key: z.string(),
   disposition: DispositionSchema,
+});
+
+const EstimateBody = z.object({
+  providerId: z.string().optional(),
+  model: z.string().optional(),
+  replayMode: ReplayModeSchema.optional(),
+});
+
+const SubmitBody = z.object({
+  providerId: z.string(),
+  model: z.string(),
+  consent: ContributionConsentSchema,
 });
 
 export function createApp(options: AppOptions = {}): App {
@@ -323,6 +368,129 @@ export function createApp(options: AppOptions = {}): App {
           };
         }
         return { status: 200, json: { session: result.session, gate: result.gate } };
+      },
+    },
+
+    // ---- 出口② direct-submit (MODIFIED review-daemon) --------------------
+    {
+      method: 'GET',
+      pattern: '/api/providers',
+      // Key-free provider list: open-model presets + user-added targets. Never
+      // returns key material (presets carry none; keys are resolved server-side).
+      handler: () => ({ status: 200, json: { providers: listProviders(options.userTargets ?? []) } }),
+    },
+
+    {
+      method: 'POST',
+      pattern: '/api/reviews/:reviewId/submit/estimate',
+      handler: ({ params, body }) => {
+        const state = store.get(params.reviewId);
+        if (!state) return notFound(`unknown review "${params.reviewId}"`);
+        const parsed = EstimateBody.safeParse(body);
+        if (!parsed.success) return badRequest(parsed.error.message);
+        const { providerId, replayMode } = parsed.data;
+        // Validate the provider when named, so the estimate never implies a price
+        // for a target that cannot be submitted to.
+        if (providerId && !resolveProvider(providerId, options.userTargets ?? [])) {
+          return notFound(`unknown provider "${providerId}"`);
+        }
+        // Price by the selected provider, falling back to the default and
+        // disclosing which (`pricingSource`) — presets carry no per-token price.
+        const { pricing, pricingSource } = resolveProviderPricing(providerId);
+        // Estimate over the stamped session the export path would emit. No send.
+        // Also return the content hash so the consent dialog can bind consent to
+        // the exact content without recomputing a hash client-side.
+        const stamped = applyDispositions(state.session, state.report, state.mapper).session;
+        const est = estimate(stamped, replayMode ?? 'single-shot', {
+          metaVersions: resolveMetaVersions(),
+          pricing,
+        });
+        return {
+          status: 200,
+          json: { ...est, pricingSource, contentHash: computeContentHash(stamped) },
+        };
+      },
+    },
+
+    {
+      method: 'POST',
+      pattern: '/api/reviews/:reviewId/submit',
+      handler: async ({ params, body }) => {
+        const state = store.get(params.reviewId);
+        if (!state) return notFound(`unknown review "${params.reviewId}"`);
+        const parsed = SubmitBody.safeParse(body);
+        if (!parsed.success) return badRequest(parsed.error.message);
+
+        // Derive the stamped session exactly as /export does; refuse if locked.
+        const applied = applyDispositions(state.session, state.report, state.mapper);
+        if (!applied.gate.unlocked) {
+          return {
+            status: 409,
+            json: {
+              error: 'gate is locked; disposition all blocking + non-text items first',
+              code: 'GATE_LOCKED',
+              gate: applied.gate,
+            },
+          };
+        }
+
+        // `consent.replayMode` is authoritative (required by the schema); the
+        // top-level `SubmitBody.replayMode` is not used.
+        const { providerId, model, consent } = parsed.data;
+        const target = resolveProvider(providerId, options.userTargets ?? []);
+        if (!target) return notFound(`unknown provider "${providerId}"`);
+
+        // Key is read server-side; a missing key is a config error, not a leak.
+        const apiKey = resolveProviderKey(providerId, {
+          keyConfigPath: options.providerKeyConfigPath,
+        });
+
+        try {
+          const receipt = await submit({
+            session: applied.session,
+            target,
+            model,
+            consent,
+            ruleset: getDefaultRuleset(),
+            apiKey,
+            transport: options.submitTransport ?? fetchTransport,
+            versions: resolveMetaVersions(),
+            now: options.now,
+            generatedAt: options.now,
+          });
+          return { status: 200, json: { receipt } };
+        } catch (err) {
+          if (err instanceof ConsentError) {
+            return { status: 422, json: { error: err.message, code: 'CONSENT_INVALID' } };
+          }
+          if (err instanceof SubmissionRefusedError) {
+            // The pre-send backstop found a surviving blocking secret — refuse,
+            // report the finding, and (by construction) nothing was sent. The
+            // preview is over the key-free body, so it cannot carry a key.
+            return {
+              status: 422,
+              json: {
+                error: err.message,
+                code: 'BACKSTOP_BLOCKED',
+                backstopBlocked: true,
+                blockingFindings: err.blockingFindings,
+              },
+            };
+          }
+          if (err instanceof NotStampedError) {
+            return { status: 409, json: { error: err.message, code: 'NOT_STAMPED' } };
+          }
+          if (err instanceof KeyNotConfiguredError) {
+            // Server-side configuration state, not a malformed request. The
+            // message names env-var names only, never any credential value.
+            return { status: 400, json: { error: err.message, code: 'KEY_NOT_CONFIGURED' } };
+          }
+          // Any other error (e.g. a transport/network failure) must NOT echo its
+          // raw message — a custom transport could embed sensitive detail. Log
+          // the detail server-side; return a generic, key-free body.
+          console.error(`[submit] unexpected error for review ${params.reviewId}:`, err);
+          return { status: 500, json: { error: 'submission failed', code: 'SUBMIT_FAILED' } };
+        }
       },
     },
   ];

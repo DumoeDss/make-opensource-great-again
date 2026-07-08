@@ -1,0 +1,33 @@
+{
+  "name": "@mosga/direct-submit",
+  "version": "0.1.0",
+  "description": "出口② (direct-submit): replay a gate-unlocked, stamped SanitizedSession to a user-chosen open-model provider using the contributor's own key — request reconstruction + Anthropic/OpenAI conversion, a pre-send raw-bytes backstop (replicating the publisher pattern), an informed-consent gate bound to content, a token-cost estimator, and a key-free submission receipt.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "mosga-submit": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@mosga/contracts": "*",
+    "@mosga/sanitizer": "*",
+    "@omnicross/core": "^0.1.2",
+    "@omnicross/contracts": "^0.1.2",
+    "zod": "^4.3.6"
+  }
+}

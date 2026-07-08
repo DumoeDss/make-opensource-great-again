@@ -75,3 +75,29 @@
 **关键不变式（勿反悔）**：(1) 不动 publisher 的 `scanRawBytesBackstop`——它仍是字节级最后防线，也是非字符串字段的唯一覆盖；(2) ReDoS 防护（250ms/字段 + 200k cap + `redos-guard` finding）对新字段**自动生效**，因走同一 per-`ScanUnit` 循环；(3) apply 可写但非自动改写——省掉了 UI 侧 acknowledge-only 改造（本可选，未做，留作 UI polish）。
 
 **slice 2（direct-submit）继承点**：出口②发送前的对等兜底应复刻 `scanRawBytesBackstop` 模式（字节级、无 allow 逃生口）；人工门覆盖已由本切片补齐，两出口共享同一 review gate 语义。
+
+### slice 2: direct-submit
+
+> 提案已产出并通过 rasen validate（--strict）。产物：`openspec/changes/mosga-v02-direct-submit/{proposal,design,tasks}.md` + `specs/direct-submit/spec.md`(新能力，7 ADDED) + `specs/review-daemon/spec.md`(3 ADDED 路由)。以下是 slice 3 及实现者需知的固定结论。
+
+**omnicross 复用面（已核实 npm 已发布）**：`@omnicross/core@^0.1.2` + `@omnicross/contracts@^0.1.2`（MIT，`publishConfig.access:public`，本地源 0.1.3 但 npm 上是 0.1.2 → pin `^0.1.2`）。
+- `@omnicross/core` 桶导出 ApiConverter：`convertAnthropicRequestToOpenAI`/`convertAnthropicStreamToOpenAI`/`convertOpenAIResponseToAnthropic` 等（`src/api-converter/`）。出口② openai 格式厂商用它转。
+- `@omnicross/contracts` 导出 `LLM_PROVIDER_PRESETS`/`getAllProviderPresets()`/`getPresetById(id)`/type `PresetProviderTemplate`。presets 目录 29 个 json（种子文档说 31，实测 29）。deepseek 预设：`apiFormat:"openai"`,`api_base_url:"https://api.deepseek.com/v1/chat/completions"`,`models:[deepseek-v4-flash/pro/chat/reasoner]`。preset 字段有 `apiFormat`/`apiType`/`api_base_url`/`models`。
+
+**包边界决策**：新包 `@mosga/direct-submit`（`packages/direct-submit/`，含 CLI bin）。deps: contracts+sanitizer(兜底用 compileRuleset/scanSession)+omnicross core/contracts+zod。库在包、daemon 编排、UI 加同意对话框——同 monorepo 形态。**首个对外发网络的包**。
+
+**daemon 挂载点（已核实）**：出口②在 gate-unlock 后接入。submit 路由复用 `applyDispositions(state.session,state.report,state.mapper)`（与 `POST /api/reviews/:id/export` `app.ts:317` 完全相同的 stamped 派生），锁定则 409。持有的 `PseudonymMapper` 保证 contributorAlias 与 export 路径一致。新增 3 路由：`GET /api/providers`、`POST /api/reviews/:id/submit/estimate`、`POST /api/reviews/:id/submit`。
+
+**成本模型（设计文档硬要求，已入 design.md）**：T 轮、每轮 s tokens。Mode A（逐轮重生成，faithful）input≈s·T²/2 = **O(T²)**；Mode B（单发全量摄取，含 meta 末轮）input≈T·s = **O(T)**，约 T/2 倍便宜。**推荐 Mode B 默认，Mode A opt-in**。代表性表（s≈1500,DeepSeek 类价，需实现时核实）：large(120 轮) Mode A ≈$3、Mode B ≈$0.055。**实现 Task 1 是 gating**：按真实 v0.1 会话长度取样量化，报出 go/no-go；不可接受则先定截断策略（滑窗/compact-summary 复用/单会话预算）。
+
+**格式转换 + 限制**：`SanitizedSession.messages` 与源 JSONL 同构 → `toAnthropicMessages(session)` 重建 Anthropic messages（text/thinking/`tool_use`←toolCalls/`tool_result`←toolResults），meta 作末轮 user turn 使请求 well-formed。openai 预设经 omnicross 转 OpenAI。**已知限制**：非文本字节 upstream 只标记不留存（slice-1 readers 事实），出口②重放仅 text+tool，meta 消息须披露。
+
+**兜底（继承 slice-1 不变式）**：新包内 `scanOutboundBytesBackstop(rawBytes,ruleset)` **复刻** `scanRawBytesBackstop` 模式（重叠窗口<200k、shared ruleset、synthetic session）。扫**确切出站字节**（转换后请求+meta），任一 L1/L2 命中硬拒、无 allow 逃生、独立于人工门。**绝不 import/改 `packages/publisher/src/precheck.ts`**（该函数也未被 publisher 导出，只能复刻）。~30 行重复；未来可上提 sanitizer，但那要改 precheck.ts，本 slice 禁止。
+
+**新 contracts schema**：`ContributionConsent`（consentVersion,tosRiskAcknowledged,fullRetentionAcknowledged,target{Provider,Model},replayMode,estimatedTokens,contentHash(sha256 绑定内容),confirmedAt——**无 key**）、`ContributionMeta`（kind='mosga-contribution-meta'+provenance+consent ack+note）、`SubmissionReceipt`（key-free receipt）。同意需两 ack 全真 + contentHash 匹配，否则 422 拒发；接受的同意入 provenance。
+
+**Key 处理**：用户自己的 key 从 env/可信本地配置服务端读（**绝不**请求体/客户端路径，同 daemon customRulesPath 信任模型），仅作出站 auth header，**绝不**入导出数据/meta/consent/receipt/log/任何 daemon 响应；测试断言之。
+
+**用户已决 ToS（勿再问）**：出口② = 知情同意 + 完整保留；实现 Task 12 回写 office-hours 文档 Open Q3（标记已决，2026-07-09）。
+
+**slice 3（tauri-shell）依赖**：daemon 端点集合在本切片后才稳定（新增 providers/estimate/submit + UI 同意对话框）；壳要包住含出口②投递 UI 的最终界面。

@@ -20,7 +20,9 @@
       "@mosga/session-readers": ["packages/session-readers/src/index.ts"],
       "@mosga/session-readers/*": ["packages/session-readers/src/*"],
       "@mosga/sanitizer": ["packages/sanitizer/src/index.ts"],
-      "@mosga/sanitizer/*": ["packages/sanitizer/src/*"]
+      "@mosga/sanitizer/*": ["packages/sanitizer/src/*"],
+      "@mosga/direct-submit": ["packages/direct-submit/src/index.ts"],
+      "@mosga/direct-submit/*": ["packages/direct-submit/src/*"]
     }
   },
   "exclude": ["node_modules", "dist"]

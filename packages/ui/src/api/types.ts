@@ -4,7 +4,12 @@
  * UI never redefines the sanitizer's contract, and the envelope from
  * `@mosga/contracts`.
  */
-import type { SanitizedSession } from '@mosga/contracts';
+import type {
+  ContributionConsent,
+  ReplayMode,
+  SanitizedSession,
+  SubmissionReceipt,
+} from '@mosga/contracts';
 import type {
   Disposition,
   Finding,
@@ -14,13 +19,39 @@ import type {
 } from '@mosga/sanitizer';
 
 export type {
+  ContributionConsent,
   Disposition,
   Finding,
   NonTextItem,
   NormalizationCategory,
+  ReplayMode,
   SanitizationReport,
   SanitizedSession,
+  SubmissionReceipt,
 };
+
+/** A selectable direct-submit provider (key-free — never carries a key). */
+export interface ProviderTarget {
+  id: string;
+  name: string;
+  apiFormat: string;
+  apiBaseUrl: string;
+  models: string[];
+}
+
+/** The submit cost-estimate response (mirrors the daemon shape + content hash). */
+export interface SubmitEstimate {
+  replayMode: ReplayMode;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  requestCount: number;
+  estimatedCostUsd: number;
+  /** Whether the cost used provider-specific pricing or the generic default. */
+  pricingSource?: 'provider' | 'default';
+  /** sha256 of the stamped session — binds the consent record to exact content. */
+  contentHash: string;
+}
 
 export type NonTextDisposition = NonTextItem['disposition'];
 
