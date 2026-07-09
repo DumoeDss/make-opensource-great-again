@@ -20,8 +20,13 @@ interface SubmitPanelProps {
   client: ApiClient;
   reviewId: string;
   gate: SanitizationReport['gate'];
-  /** Notifies the journey container so it can mark step ④ completed. */
+  /** Notifies the journey container so it can mark the exit step completed. */
   onSubmitted?: (receipt: SubmissionReceipt) => void;
+  /**
+   * Gate the submit behind the journey's one-time donation confirm (design B3).
+   * Optional — when absent the panel submits directly (independently usable).
+   */
+  beforeSubmit?: (proceed: () => void) => void;
 }
 
 /**
@@ -32,7 +37,7 @@ interface SubmitPanelProps {
  * POSTs the submit with a content-bound consent record; the daemon re-runs the
  * pre-send backstop and returns a key-free receipt.
  */
-export function SubmitPanel({ client, reviewId, gate, onSubmitted }: SubmitPanelProps): JSX.Element {
+export function SubmitPanel({ client, reviewId, gate, onSubmitted, beforeSubmit }: SubmitPanelProps): JSX.Element {
   const [providers, setProviders] = useState<ProviderTarget[]>([]);
   const [providerId, setProviderId] = useState('');
   const [model, setModel] = useState('');
@@ -239,7 +244,7 @@ export function SubmitPanel({ client, reviewId, gate, onSubmitted }: SubmitPanel
 
       <Button
         type="button"
-        onClick={() => void onSubmit()}
+        onClick={() => (beforeSubmit ? beforeSubmit(() => void onSubmit()) : void onSubmit())}
         disabled={!canSubmit}
         size="lg"
         data-testid="submit-confirm"

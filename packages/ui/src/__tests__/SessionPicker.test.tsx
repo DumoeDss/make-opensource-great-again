@@ -268,3 +268,78 @@ describe('SessionPicker queue creation', () => {
     expect(onQueueCreated.mock.calls[0][0][0].review.reviewId).toBe('rv-s1');
   });
 });
+
+describe('SessionPicker scope selection (tree checkboxes)', () => {
+  it('ticking a project checkbox loads its sessions and selects them all', async () => {
+    const listProjects = vi.fn(
+      async (): Promise<ProjectsResponse> => ({
+        projects: [proj('src-a', 'a1')],
+        totalCount: 1,
+        recommendedCount: 1,
+        showAll: false,
+      }),
+    );
+    const listSessions = vi.fn(async () => [sess('a1', 's1'), sess('a1', 's2')]);
+    const { getByTestId } = render(
+      <SessionPicker client={fakeClient({ listProjects, listSessions })} onQueueCreated={vi.fn()} />,
+    );
+    await waitFor(() => expect(getByTestId('source-src-a')).toBeTruthy());
+    fireEvent.click(getByTestId('source-src-a'));
+    await waitFor(() => expect(getByTestId('scope-project-a1')).toBeTruthy());
+
+    fireEvent.click(getByTestId('scope-project-a1'));
+    await waitFor(() => expect(getByTestId('selection-bar').textContent).toContain('已选 2'));
+    expect(listSessions).toHaveBeenCalledWith('src-a', 'a1');
+  });
+
+  it('unticking a source removes its sessions by prefix with no extra requests', async () => {
+    const listSessions = vi.fn(async () => [sess('a1', 's1'), sess('a1', 's2')]);
+    const listProjects = vi.fn(
+      async (): Promise<ProjectsResponse> => ({
+        projects: [proj('src-a', 'a1')],
+        totalCount: 1,
+        recommendedCount: 1,
+        showAll: false,
+      }),
+    );
+    const { getByTestId, queryByTestId } = render(
+      <SessionPicker client={fakeClient({ listProjects, listSessions })} onQueueCreated={vi.fn()} />,
+    );
+    await waitFor(() => expect(getByTestId('source-src-a')).toBeTruthy());
+    fireEvent.click(getByTestId('source-src-a'));
+    await waitFor(() => expect(getByTestId('scope-project-a1')).toBeTruthy());
+
+    // Tick the source scope → both sessions selected.
+    fireEvent.click(getByTestId('scope-source-src-a'));
+    await waitFor(() => expect(getByTestId('selection-bar').textContent).toContain('已选 2'));
+    const callsAfterSelect = listSessions.mock.calls.length;
+
+    // Untick → prefix removal, no new listSessions calls, bar disappears.
+    fireEvent.click(getByTestId('scope-source-src-a'));
+    await waitFor(() => expect(queryByTestId('selection-bar')).toBeNull());
+    expect(listSessions.mock.calls.length).toBe(callsAfterSelect);
+  });
+
+  it('select-all-projects fans out across sources and truncates at the cap', async () => {
+    const listProjects = vi.fn(
+      async (sourceId: string): Promise<ProjectsResponse> => ({
+        projects: sourceId === 'src-a' ? [proj('src-a', 'a1')] : [proj('src-b', 'b1')],
+        totalCount: 1,
+        recommendedCount: 1,
+        showAll: false,
+      }),
+    );
+    const listSessions = vi.fn(async (_s: string, key: string) =>
+      Array.from({ length: 15 }, (_, i) => sess(key, `${key}-${i}`, { sourceId: key === 'a1' ? 'src-a' : 'src-b' })),
+    );
+    const { getByTestId } = render(
+      <SessionPicker client={fakeClient({ listProjects, listSessions })} onQueueCreated={vi.fn()} />,
+    );
+    await waitFor(() => expect(getByTestId('select-all-projects')).toBeTruthy());
+
+    // 2 sources × 15 sessions = 30 available → capped to 20.
+    fireEvent.click(getByTestId('select-all-projects'));
+    await waitFor(() => expect(getByTestId('selection-bar').textContent).toContain('已选 20'));
+    expect(getByTestId('selection-bar').textContent).toContain('最多可选 20');
+  });
+});

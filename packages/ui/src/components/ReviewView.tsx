@@ -12,11 +12,11 @@ import type {
   SanitizedSession,
 } from '../api/types';
 import { blockingFindings, cleanableFindings, distinctRuleIds } from '../lib/findings';
+import { AffirmDialog } from './journey/AffirmDialog';
 import { BatchExitCards } from './journey/BatchExitCards';
 import { DispositionWorkspace } from './journey/DispositionWorkspace';
 import { ExitCards } from './journey/ExitCards';
 import { QueueBar } from './journey/QueueBar';
-import { SigningCard } from './journey/SigningCard';
 import { makeContextLookup } from './NonTextList';
 import { Stepper, type JourneyStep } from './shell/Stepper';
 import { ConfirmDialog } from './ui/confirm-dialog';
@@ -24,32 +24,29 @@ import { WarningsBanner } from './WarningsBanner';
 
 interface ReviewViewProps {
   client: ApiClient;
-  /** The review queue. A length-1 queue is the single-session journey (unchanged). */
+  /** The review queue. A length-1 queue is the single-session journey. */
   items: QueueItem[];
   onRestart?: () => void;
 }
 
-/** Per-session journey state; the report/signature are owned here, not the daemon. */
+/** Per-session journey state; the held report is authoritative for the gate counts. */
 interface ItemState {
   reviewId: string;
   report: SanitizationReport;
   warnings: RulesetWarning[];
-  signed: boolean;
   exported: SanitizedSession | null;
 }
 
 /**
- * The journey container (steps ②③④), now queue-aware. Owns a per-session state
- * array + a `current` index; ②处置 and ③签署 operate on the current session, and
- * signing item k auto-advances to the next unsigned session. Step ④ becomes
- * enterable only when EVERY session is signed — at which point N=1 renders the
- * existing `ExitCards` (byte-identical to the pre-queue journey) and N>1 renders the
- * batch exits (`BatchExitCards`).
+ * The journey container, now a 3-step flow: ②处置命中 → ③选择出口, with donation
+ * confirmation collapsed into ONE dialog raised before the first exit action
+ * (`AffirmDialog`) — the user's ask: confirm once for the whole queue, not per
+ * session. Shortest path is 一键替换 → 选择出口 → 确认.
  *
- * Signing is client-side state: once a session is signed, ANY disposition change to
- * it is guarded by a `ConfirmDialog` that voids that session's signature and
- * re-locks step ④ (the server gate's 409 remains the final backstop). Leaving the
- * journey with progress in flight is guarded by a second confirm (design Open Q2).
+ * `affirmed` is client-side; the server's per-review gate 409 stays the final
+ * backstop, and each 出口② consent is still content-bound. Editing any disposition
+ * after affirming voids the affirmation via a `ConfirmDialog`. Leaving the journey
+ * with progress prompts a second confirm.
  */
 export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.Element {
   const [states, setStates] = useState<ItemState[]>(() =>
@@ -57,7 +54,6 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
       reviewId: qi.review.reviewId,
       report: qi.review.report,
       warnings: qi.review.rulesetWarnings,
-      signed: false,
       exported: null,
     })),
   );
@@ -67,6 +63,11 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
   const [error, setError] = useState<string | null>(null);
   const [activeStep, setActiveStep] = useState<JourneyStep>(2);
   const [focusRuleId, setFocusRuleId] = useState<string | null>(null);
+  // The whole-queue donation confirmation, and the exit action awaiting it.
+  const [affirmed, setAffirmed] = useState(false);
+  const [affirmOpen, setAffirmOpen] = useState(false);
+  const pendingActionRef = useRef<(() => void) | null>(null);
+  // The disposition-void confirm (fired when editing after affirming).
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [restartOpen, setRestartOpen] = useState(false);
   // "Touched" once any disposition succeeds — arms the leave-journey confirm.
@@ -80,19 +81,16 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
   const blocking = useMemo(() => blockingFindings(report), [report]);
   const contextFor = useMemo(() => makeContextLookup(report.findings), [report.findings]);
 
-  const cleared = report.gate.unlocked;
-  const pending = report.gate.blockingPending + report.gate.nonTextPending;
-  const allSigned = states.every((s) => s.signed);
-  // ④ gates on the WHOLE queue being signed (for N=1, allSigned === current signed).
-  const maxEnterable: JourneyStep = allSigned ? 4 : cleared ? 3 : 2;
+  const cleared = report.gate.unlocked; // the CURRENT session
+  const allCleared = states.every((s) => s.report.gate.unlocked);
+  // ③ 选择出口 is enterable once EVERY session's gate is unlocked.
+  const maxEnterable: JourneyStep = allCleared ? 3 : 2;
 
   // Triage + clean derivations (single source: `cleanableFindings`).
   const pendingPerItem = states.map((s) => s.report.gate.blockingPending + s.report.gate.nonTextPending);
+  const pendingTotal = pendingPerItem.reduce((a, b) => a + b, 0);
   const currentCleanable = cleanableFindings(cur.report).length;
-  const queueCleanableCount = states.reduce(
-    (n, s) => (s.signed ? n : n + cleanableFindings(s.report).length),
-    0,
-  );
+  const queueCleanableCount = states.reduce((n, s) => n + cleanableFindings(s.report).length, 0);
 
   // Clamp back if a re-lock/void/queue-switch removed access to a later step.
   useEffect(() => {
@@ -111,14 +109,7 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
     setError(null);
     try {
       const { report: next } = await fn();
-      // A report change can re-lock the gate; drop the signature on re-lock, but
-      // never re-affirm it — read the latest `s.signed`, not the stale closure, so a
-      // just-voided signature (still-unlocked report) is not resurrected.
-      setStates((prev) =>
-        prev.map((s, i) =>
-          i === current ? { ...s, report: next, signed: next.gate.unlocked ? s.signed : false } : s,
-        ),
-      );
+      setStates((prev) => prev.map((s, i) => (i === current ? { ...s, report: next } : s)));
       setTouched(true);
     } catch (e) {
       setError(String(e));
@@ -127,9 +118,10 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
     }
   };
 
-  // Guard: when the current session is signed, intercept any disposition change.
+  // Guard: once the queue is affirmed, intercept any disposition change with a
+  // void-confirm (editing invalidates the whole-queue confirmation).
   const guarded = (fn: () => Promise<{ report: SanitizationReport }>): void => {
-    if (cur.signed) {
+    if (affirmed) {
       pendingRef.current = fn;
       setConfirmOpen(true);
     } else {
@@ -138,7 +130,7 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
   };
 
   const onConfirmVoid = (): void => {
-    patchCurrent({ signed: false });
+    setAffirmed(false);
     setCompleted(false);
     const fn = pendingRef.current;
     pendingRef.current = null;
@@ -158,28 +150,23 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
     guarded(() => client.setNonText(cur.reviewId, messageUuid, d));
   };
 
-  /** Next unsigned index searching forward from `from` (exclusive), wrapping; -1 if none. */
-  const nextUnsigned = (from: number): number => {
-    const n = states.length;
-    for (let d = 1; d <= n; d++) {
-      const idx = (from + d) % n;
-      if (idx === from) break;
-      // The just-signed `from` item is already accounted for; skip it and any signed.
-      if (!states[idx].signed) return idx;
+  // ---- One-time donation confirmation ----------------------------------------
+  // The first exit action opens the AffirmDialog; on confirm we run the deferred
+  // action. Once affirmed, exits proceed directly (until an edit voids it).
+  const requireAffirm = (proceed: () => void): void => {
+    if (affirmed) {
+      proceed();
+      return;
     }
-    return -1;
+    pendingActionRef.current = proceed;
+    setAffirmOpen(true);
   };
 
-  const onSign = (): void => {
-    patchCurrent({ signed: true });
-    setTouched(true);
-    const next = nextUnsigned(current);
-    if (next === -1) {
-      setActiveStep(4); // every session signed → the exit step
-    } else {
-      setCurrent(next);
-      setActiveStep(2);
-    }
+  const onAffirmConfirm = (): void => {
+    setAffirmed(true);
+    const fn = pendingActionRef.current;
+    pendingActionRef.current = null;
+    if (fn) fn();
   };
 
   // The publish wizard's `precheck_refused` view jumps back to step ② and asks the
@@ -189,8 +176,7 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
     setActiveStep(2);
   };
 
-  // The BATCH wizard's per-session refusal jumps to that session's step ②: switch
-  // the current item (reset semantics), then focus the named rule's group.
+  // The BATCH wizard's per-session refusal jumps to that session's step ②.
   const onJumpToSession = (reviewId: string, ruleId: string): void => {
     const idx = states.findIndex((s) => s.reviewId === reviewId);
     if (idx === -1) return;
@@ -235,26 +221,46 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
   };
 
   const applyCleaned = (reviewId: string, latest: SanitizationReport): void => {
-    // Same discipline as runMutation: drop the signature on a re-lock, never revive.
-    setStates((prev) =>
-      prev.map((s) =>
-        s.reviewId === reviewId
-          ? { ...s, report: latest, signed: latest.gate.unlocked ? s.signed : false }
-          : s,
-      ),
-    );
+    setStates((prev) => prev.map((s) => (s.reviewId === reviewId ? { ...s, report: latest } : s)));
     setTouched(true);
   };
 
-  /** Clean one session (signed sessions are skipped — no void-confirm is raised). */
+  /** Next session index (from `from`, wrapping) whose pending count is > 0; -1 if none. */
+  const findNextPending = (pend: number[], from: number): number => {
+    const n = pend.length;
+    for (let d = 1; d <= n; d++) {
+      const idx = (from + d) % n;
+      if (idx === from) break;
+      if (pend[idx] > 0) return idx;
+    }
+    return -1;
+  };
+
+  /** Clean the given session, then auto-advance (next pending session, or → 选择出口). */
   const cleanSession = async (idx: number): Promise<void> => {
-    const item = states[idx];
-    if (item.signed) return;
     setBusy(true);
     setError(null);
     try {
+      const item = states[idx];
       const latest = await runClean(item);
       if (latest) applyCleaned(item.reviewId, latest);
+      const clearedNow = (latest ?? item.report).gate.unlocked;
+      if (clearedNow) {
+        // Pending across the queue, with `idx` overridden by the just-cleaned report.
+        const pend = states.map((s, i) => {
+          const rep = i === idx ? (latest ?? s.report) : s.report;
+          return rep.gate.blockingPending + rep.gate.nonTextPending;
+        });
+        const nextIdx = findNextPending(pend, idx);
+        if (nextIdx === -1) {
+          setActiveStep(3); // whole queue cleared → choose an exit
+        } else {
+          setCurrent(nextIdx);
+          setActiveStep(2);
+          setError(null);
+          setFocusRuleId(null);
+        }
+      }
     } catch (e) {
       setError(String(e));
     } finally {
@@ -262,44 +268,65 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
     }
   };
 
-  /** Clean every UNSIGNED session sequentially; failures accumulate but never stop the loop. */
+  /** Clean every session sequentially; failures accumulate but never stop the loop. */
   const cleanQueue = async (): Promise<void> => {
     setBusy(true);
     setError(null);
     const failures: string[] = [];
+    const updated = new Map<string, SanitizationReport>();
     for (const item of states) {
-      if (item.signed) continue;
       try {
         const latest = await runClean(item);
-        if (latest) applyCleaned(item.reviewId, latest);
+        if (latest) {
+          applyCleaned(item.reviewId, latest);
+          updated.set(item.reviewId, latest);
+        }
       } catch (e) {
         failures.push(`${item.reviewId}: ${String(e)}`);
       }
     }
     setBusy(false);
     if (failures.length > 0) setError(`部分会话清洗失败：${failures.join('；')}`);
+    // Auto-advance to 选择出口 once the whole queue is cleared.
+    const allClearedNow = states.every((s) => (updated.get(s.reviewId) ?? s.report).gate.unlocked);
+    if (allClearedNow) setActiveStep(3);
   };
 
-  // Leaving the journey with signed/in-progress work → confirm first (Open Q2).
+  // The ② cleared banner's CTA: to 选择出口 when the whole queue is done, otherwise
+  // move on to the next session that still needs work.
+  const onProceedToExit = (): void => {
+    if (allCleared) {
+      setActiveStep(3);
+      return;
+    }
+    const next = findNextPending(pendingPerItem, current);
+    if (next !== -1) selectItem(next);
+  };
+
+  // Leaving the journey with progress → confirm first.
   const requestRestart = (): void => {
     if (!onRestart) return;
-    if (touched || states.some((s) => s.signed)) setRestartOpen(true);
+    if (touched || affirmed) setRestartOpen(true);
     else onRestart();
   };
 
-  // The Stepper only navigates ②③④ (① is non-interactive; 换会话 lives in the header).
+  // The Stepper only navigates ②③ (① is non-interactive; 换会话 lives in the header).
   const navigate = (n: JourneyStep): void => {
     if (n <= maxEnterable) setActiveStep(n);
   };
 
   const selectItem = (idx: number): void => {
     setCurrent(idx);
-    // Per-item view state must not leak across queue items: the previous
-    // session's error banner and precheck rule focus are meaningless here.
-    // The clamp effect trims the active step to the picked item's enterable max.
+    // Per-item view state must not leak across queue items.
     setError(null);
     setFocusRuleId(null);
   };
+
+  const batchItems = states.map((s, i) => ({
+    reviewId: s.reviewId,
+    sessionId: s.report.sessionId,
+    title: items[i].ref.title ?? s.report.sessionId,
+  }));
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
@@ -322,7 +349,6 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
         <QueueBar
           items={items}
           current={current}
-          signed={states.map((s) => s.signed)}
           pending={pendingPerItem}
           onSelect={selectItem}
           queueCleanableCount={queueCleanableCount}
@@ -333,10 +359,9 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
 
       <Stepper
         current={currentStep}
-        cleared={cleared}
-        signed={allSigned}
+        cleared={allCleared}
         completed={completed}
-        pending={pending}
+        pending={pendingTotal}
         maxEnterable={maxEnterable}
         onNavigate={navigate}
       />
@@ -365,22 +390,18 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
             cleanableCount={currentCleanable}
             onCleanAll={() => void cleanSession(current)}
             cleared={cleared}
-            onProceedToSign={() => setActiveStep(3)}
+            onProceedToExit={onProceedToExit}
           />
         )}
-        {currentStep === 3 && <SigningCard report={report} onSign={onSign} />}
-        {currentStep === 4 &&
+        {currentStep === 3 &&
           (isMulti ? (
             <BatchExitCards
               client={client}
-              items={states.map((s, i) => ({
-                reviewId: s.reviewId,
-                sessionId: s.report.sessionId,
-                title: items[i].ref.title ?? s.report.sessionId,
-              }))}
+              items={batchItems}
               onPublished={() => setCompleted(true)}
               onSubmittedAll={() => setCompleted(true)}
               onJumpToSession={onJumpToSession}
+              requireAffirm={requireAffirm}
             />
           ) : (
             <ExitCards
@@ -393,15 +414,26 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
               onSubmitted={() => setCompleted(true)}
               onPublished={() => setCompleted(true)}
               onJumpToRule={onJumpToRule}
+              requireAffirm={requireAffirm}
             />
           ))}
       </main>
 
+      <AffirmDialog
+        open={affirmOpen}
+        onOpenChange={(o) => {
+          setAffirmOpen(o);
+          if (!o) pendingActionRef.current = null;
+        }}
+        reports={states.map((s) => s.report)}
+        onConfirm={onAffirmConfirm}
+      />
+
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        title="作废签署并重新锁定出口"
-        description="修改处置将作废你已完成的签署，出口将重新锁定，需要重新签署。"
+        title="作废捐赠确认并重新锁定出口"
+        description="修改处置将作废你已完成的捐赠确认，出口将重新锁定，需要重新确认。"
         confirmLabel="作废并修改"
         cancelLabel="取消"
         onConfirm={onConfirmVoid}
@@ -412,7 +444,7 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
         onOpenChange={setRestartOpen}
         testid="restart-confirm"
         title="放弃当前队列？"
-        description="返回选择会话将丢弃本次队列的处置与签署进度，需要重新开始。"
+        description="返回选择会话将丢弃本次队列的处置进度，需要重新开始。"
         confirmLabel="放弃并返回"
         cancelLabel="继续审阅"
         onConfirm={() => onRestart?.()}

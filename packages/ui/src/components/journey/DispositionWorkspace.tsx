@@ -42,10 +42,10 @@ interface DispositionWorkspaceProps {
   cleanableCount?: number;
   /** Replace every cleanable hit in this session with its pseudonym. */
   onCleanAll?: () => void;
-  /** The gate is unlocked → surface the primary CTA to move on to ③ 签署. */
+  /** The gate is unlocked → surface the primary CTA to move on to ③ 选择出口. */
   cleared?: boolean;
-  /** Advance the journey to ③ 签署确认. */
-  onProceedToSign?: () => void;
+  /** Advance the journey to ③ 选择出口. */
+  onProceedToExit?: () => void;
 }
 
 const GROUP_ICONS: Record<GroupId, LucideIcon> = {
@@ -80,7 +80,7 @@ export function DispositionWorkspace({
   cleanableCount = 0,
   onCleanAll,
   cleared,
-  onProceedToSign,
+  onProceedToExit,
 }: DispositionWorkspaceProps): JSX.Element {
   // Secrets = blocking secrets (excl. meta); custom = blocking custom + meta
   // findings (engine/meta hits have no editable text but must be clearable).
@@ -122,8 +122,8 @@ export function DispositionWorkspace({
 
   return (
     <div className="space-y-3">
-      {/* Gate cleared → the step's explicit primary CTA: move on to ③ 签署. */}
-      {cleared && onProceedToSign && (
+      {/* Gate cleared → the step's explicit primary CTA: move on to ③ 选择出口. */}
+      {cleared && onProceedToExit && (
         <div
           className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-success/50 bg-success/10 p-3"
           data-testid="cleared-banner"
@@ -132,8 +132,8 @@ export function DispositionWorkspace({
             <CheckCircle2 className="h-4 w-4" strokeWidth={1.5} />
             该会话所有命中已处置完毕。
           </span>
-          <Button type="button" onClick={onProceedToSign} data-testid="goto-sign">
-            前往 ③ 签署确认
+          <Button type="button" onClick={onProceedToExit} data-testid="goto-exit">
+            前往选择出口
             <ArrowRight className="h-4 w-4" strokeWidth={1.5} />
           </Button>
         </div>

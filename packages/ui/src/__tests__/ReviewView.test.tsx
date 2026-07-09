@@ -9,6 +9,14 @@ import { makeFinding, makeNonText, makeReport } from './_fixtures';
 
 afterEach(cleanup);
 
+const READY = {
+  dataRepoConfigured: true,
+  gitAvailable: true,
+  ghAvailable: true,
+  ghAuthenticated: true,
+  repoClean: true,
+};
+
 /** A fully-typed ApiClient stub; override only the methods a test exercises. */
 function fakeClient(over: Partial<ApiClient> = {}): ApiClient {
   return {
@@ -56,12 +64,10 @@ function makeRef(over: Partial<SessionRef> = {}): SessionRef {
   };
 }
 
-/** A single-review queue with a fixed reviewId of `r1` (matches the legacy assertions). */
 function one(report: SanitizationReport): QueueItem[] {
   return [{ review: { reviewId: 'r1', report, rulesetWarnings: [] }, ref: makeRef() }];
 }
 
-/** An N-item queue; reviewIds are r1..rN, refs get index-based titles. */
 function many(...reports: SanitizationReport[]): QueueItem[] {
   return reports.map((report, i) => ({
     review: { reviewId: `r${i + 1}`, report, rulesetWarnings: [] },
@@ -69,182 +75,256 @@ function many(...reports: SanitizationReport[]): QueueItem[] {
   }));
 }
 
-describe('ReviewView journey (single session — legacy contracts on a 1-item queue)', () => {
-  it('dispositioning a finding calls the client and updates the lock badge', async () => {
+/** An `exportReview` mock returning an OK stamped session (shape loosened for tests). */
+function okExport() {
+  return vi.fn(async () => ({
+    ok: true as const,
+    data: {
+      session: {
+        meta: { sanitized: true, sanitizationRulesetVersion: 'gitleaks@x', contributorAlias: 'USER_1' },
+        session: {},
+        messages: [],
+      },
+      gate: { blockingTotal: 0, blockingPending: 0, nonTextPending: 0, unlocked: true },
+    },
+  })) as unknown as ApiClient['exportReview'];
+}
+
+const cf = () => makeFinding({ id: 'fx', disposition: 'replace' });
+
+describe('ReviewView disposition step', () => {
+  it('dispositioning a finding calls the client and gates the exit until cleared', async () => {
     const initial = makeReport([makeFinding({ id: 'fx', disposition: 'pending' })]);
     const next = makeReport([makeFinding({ id: 'fx', disposition: 'replace' })]);
     const setDisposition = vi.fn(async () => ({ report: next, gate: next.gate }));
-    const client = fakeClient({ setDisposition });
+    const { getByTestId } = render(<ReviewView client={fakeClient({ setDisposition })} items={one(initial)} />);
 
-    const { getByTestId } = render(<ReviewView client={client} items={one(initial)} />);
-
-    // Locked to start: 1 remaining, exit step (④) not enterable.
     expect(getByTestId('lock-badge').textContent).toContain('还差 1');
-    expect((getByTestId('goto-step-4') as HTMLButtonElement).disabled).toBe(true);
+    expect((getByTestId('goto-step-3') as HTMLButtonElement).disabled).toBe(true);
 
     fireEvent.click(getByTestId('disp-fx-replace'));
     expect(setDisposition).toHaveBeenCalledWith('r1', 'fx', 'replace');
 
     await waitFor(() => expect(getByTestId('lock-badge').textContent).toContain('已解锁'));
+    expect((getByTestId('goto-step-3') as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('batch-by-rule delegates to the client', async () => {
     const initial = makeReport([makeFinding({ id: 'a' }), makeFinding({ id: 'b' })]);
     const batch = vi.fn(async () => ({ report: initial, gate: initial.gate }));
-    const client = fakeClient({ batch });
-
-    const { getByTestId } = render(<ReviewView client={client} items={one(initial)} />);
+    const { getByTestId } = render(<ReviewView client={fakeClient({ batch })} items={one(initial)} />);
     fireEvent.click(getByTestId('batch-rule-aws-access-token'));
-    await waitFor(() =>
-      expect(batch).toHaveBeenCalledWith('r1', 'rule', 'aws-access-token', 'replace'),
-    );
+    await waitFor(() => expect(batch).toHaveBeenCalledWith('r1', 'rule', 'aws-access-token', 'replace'));
   });
 
   it('confirming a non-text item decrements the remaining count', async () => {
     const initial = makeReport([], [makeNonText({ messageUuid: 'm1', disposition: 'pending' })]);
     const next = makeReport([], [makeNonText({ messageUuid: 'm1', disposition: 'keep' })]);
     const setNonText = vi.fn(async () => ({ report: next, gate: next.gate }));
-    const client = fakeClient({ setNonText });
-
-    const { getByTestId } = render(<ReviewView client={client} items={one(initial)} />);
+    const { getByTestId } = render(<ReviewView client={fakeClient({ setNonText })} items={one(initial)} />);
     expect(getByTestId('lock-badge').textContent).toContain('还差 1');
-
-    // The 图像/附件 group holds the non-text queue.
     fireEvent.click(getByTestId('group-nontext'));
     fireEvent.click(getByTestId('nontext-keep-m1'));
     expect(setNonText).toHaveBeenCalledWith('r1', 'm1', 'keep');
-
     await waitFor(() => expect(getByTestId('lock-badge').textContent).toContain('已解锁'));
   });
 
-  it('signing gates the exit; editing after signing voids it via the confirm dialog', async () => {
-    const cleared = makeReport([makeFinding({ id: 'fx', disposition: 'replace' })]);
+  it('one-click clean replaces each pending non-meta rule once, never the meta hits', async () => {
+    const report = makeReport([
+      makeFinding({ id: 'fx', ruleId: 'aws-access-token', disposition: 'pending' }),
+      makeFinding({ id: 'fy', ruleId: 'aws-access-token', disposition: 'pending' }),
+      makeFinding({ id: 'meta1', ruleId: 'redos-guard', disposition: 'pending' }),
+    ]);
+    const cleaned = makeReport([
+      makeFinding({ id: 'fx', ruleId: 'aws-access-token', disposition: 'replace' }),
+      makeFinding({ id: 'fy', ruleId: 'aws-access-token', disposition: 'replace' }),
+      makeFinding({ id: 'meta1', ruleId: 'redos-guard', disposition: 'pending' }),
+    ]);
+    const batch = vi.fn(async (_r: string, _by: string, _k: string, _d: string) => ({
+      report: cleaned,
+      gate: cleaned.gate,
+    }));
+    const { getByTestId } = render(<ReviewView client={fakeClient({ batch })} items={one(report)} />);
+
+    expect(getByTestId('clean-all-card').textContent).toContain('2 处');
+    fireEvent.click(getByTestId('clean-all'));
+    await waitFor(() => expect(batch).toHaveBeenCalledWith('r1', 'rule', 'aws-access-token', 'replace'));
+    expect(batch).toHaveBeenCalledTimes(1);
+    expect(batch.mock.calls.some((c) => c[2] === 'redos-guard')).toBe(false);
+  });
+
+  it('offers 前往选择出口 once cleared and advances to the exit step', () => {
+    const { getByTestId } = render(<ReviewView client={fakeClient()} items={one(makeReport([cf()]))} />);
+    expect(getByTestId('cleared-banner')).toBeTruthy();
+    fireEvent.click(getByTestId('goto-exit'));
+    expect(getByTestId('exit-cards')).toBeTruthy();
+  });
+});
+
+describe('ReviewView one-time donation confirmation', () => {
+  it('the first exit action opens the affirm dialog; confirming then runs it', async () => {
+    const exportReview = okExport();
+    const { getByTestId, queryByTestId } = render(
+      <ReviewView client={fakeClient({ exportReview })} items={one(makeReport([cf()]))} />,
+    );
+    fireEvent.click(getByTestId('goto-step-3'));
+
+    fireEvent.click(getByTestId('export-secondary'));
+    expect(getByTestId('affirm-dialog')).toBeTruthy();
+    expect(exportReview).not.toHaveBeenCalled();
+
+    fireEvent.click(getByTestId('affirm-confirm'));
+    await waitFor(() => expect(exportReview).toHaveBeenCalledWith('r1'));
+    expect(queryByTestId('affirm-dialog')).toBeNull();
+  });
+
+  it('aggregates the summary across every session', () => {
+    const items = many(
+      makeReport([makeFinding({ id: 'a', disposition: 'replace' })]),
+      makeReport([makeFinding({ id: 'b', disposition: 'replace' })]),
+    );
+    const { getByTestId } = render(<ReviewView client={fakeClient()} items={items} />);
+    fireEvent.click(getByTestId('goto-step-3'));
+    fireEvent.click(getByTestId('batch-export-all'));
+    expect(getByTestId('summary-sessions').textContent).toBe('2');
+    expect(getByTestId('summary-dispositions').textContent).toContain('替换 2');
+  });
+
+  it('once affirmed, a later exit action proceeds without re-confirming', async () => {
+    const exportReview = okExport();
+    const { getByTestId, queryByTestId } = render(
+      <ReviewView client={fakeClient({ exportReview })} items={one(makeReport([cf()]))} />,
+    );
+    fireEvent.click(getByTestId('goto-step-3'));
+    fireEvent.click(getByTestId('export-secondary'));
+    fireEvent.click(getByTestId('affirm-confirm'));
+    await waitFor(() => expect(exportReview).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(getByTestId('export-secondary'));
+    await waitFor(() => expect(exportReview).toHaveBeenCalledTimes(2));
+    expect(queryByTestId('affirm-dialog')).toBeNull();
+  });
+
+  it('cancelling the affirm dialog does not run the action', () => {
+    const exportReview = okExport();
+    const { getByTestId } = render(
+      <ReviewView client={fakeClient({ exportReview })} items={one(makeReport([cf()]))} />,
+    );
+    fireEvent.click(getByTestId('goto-step-3'));
+    fireEvent.click(getByTestId('export-secondary'));
+    fireEvent.click(getByTestId('affirm-cancel'));
+    expect(exportReview).not.toHaveBeenCalled();
+  });
+
+  it('editing after affirming raises the void confirm and blocks the daemon call', async () => {
     const afterEdit = makeReport([makeFinding({ id: 'fx', disposition: 'delete' })]);
     const setDisposition = vi.fn(async () => ({ report: afterEdit, gate: afterEdit.gate }));
-    const client = fakeClient({ setDisposition });
-
-    const { getByTestId } = render(<ReviewView client={client} items={one(cleared)} />);
-
-    // Cleared but unsigned → ④ still gated.
-    expect(getByTestId('lock-badge').textContent).toContain('已解锁');
-    expect((getByTestId('goto-step-4') as HTMLButtonElement).disabled).toBe(true);
-
-    // Enter ③ and sign.
+    const exportReview = okExport();
+    const { getByTestId } = render(
+      <ReviewView client={fakeClient({ setDisposition, exportReview })} items={one(makeReport([cf()]))} />,
+    );
     fireEvent.click(getByTestId('goto-step-3'));
-    fireEvent.click(getByTestId('sign-checkbox'));
-    fireEvent.click(getByTestId('sign-submit'));
+    fireEvent.click(getByTestId('export-secondary'));
+    fireEvent.click(getByTestId('affirm-confirm'));
+    await waitFor(() => expect(exportReview).toHaveBeenCalled());
 
-    // Signed → badge 已签署, ④ now enterable.
-    expect(getByTestId('lock-badge').textContent).toContain('已签署');
-    expect((getByTestId('goto-step-4') as HTMLButtonElement).disabled).toBe(false);
-
-    // Back to ② and change a disposition → the void-confirm dialog intercepts.
     fireEvent.click(getByTestId('goto-step-2'));
     fireEvent.click(getByTestId('disp-fx-delete'));
     expect(screen.getByTestId('dialog-confirm')).toBeTruthy();
-    // Guard intercepted — no daemon call until the user confirms.
     expect(setDisposition).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId('dialog-confirm-ok-btn'));
     expect(setDisposition).toHaveBeenCalledWith('r1', 'fx', 'delete');
-
-    // Signature voided → ④ re-locked (unsigned), badge back to 已解锁.
-    await waitFor(() => expect(getByTestId('lock-badge').textContent).toContain('已解锁'));
-    expect((getByTestId('goto-step-4') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('cancelling the void dialog makes no daemon call', async () => {
-    const cleared = makeReport([makeFinding({ id: 'fx', disposition: 'replace' })]);
-    const setDisposition = vi.fn(async () => ({ report: cleared, gate: cleared.gate }));
-    const client = fakeClient({ setDisposition });
-
-    const { getByTestId } = render(<ReviewView client={client} items={one(cleared)} />);
-    fireEvent.click(getByTestId('goto-step-3'));
-    fireEvent.click(getByTestId('sign-checkbox'));
-    fireEvent.click(getByTestId('sign-submit'));
-    fireEvent.click(getByTestId('goto-step-2'));
-    fireEvent.click(getByTestId('disp-fx-delete'));
-
-    fireEvent.click(screen.getByTestId('dialog-confirm-cancel-btn'));
-    expect(setDisposition).not.toHaveBeenCalled();
-    // Still signed — cancel is a no-op.
-    expect(getByTestId('lock-badge').textContent).toContain('已签署');
-  });
-
-  it('N=1 has no queue bar and renders ExitCards at step ④', () => {
-    const cleared = makeReport([makeFinding({ id: 'fx', disposition: 'replace' })]);
-    const { getByTestId, queryByTestId } = render(
-      <ReviewView client={fakeClient()} items={one(cleared)} />,
+  it('leaving the journey after a mutation prompts a restart confirm', async () => {
+    const onRestart = vi.fn();
+    const next = makeReport([cf()]);
+    const setDisposition = vi.fn(async () => ({ report: next, gate: next.gate }));
+    const { getByTestId } = render(
+      <ReviewView
+        client={fakeClient({ setDisposition })}
+        items={one(makeReport([makeFinding({ id: 'fx', disposition: 'pending' })]))}
+        onRestart={onRestart}
+      />,
     );
-    expect(queryByTestId('queue-bar')).toBeNull();
+    fireEvent.click(getByTestId('disp-fx-replace'));
+    await waitFor(() => expect(setDisposition).toHaveBeenCalled());
 
-    fireEvent.click(getByTestId('goto-step-3'));
-    fireEvent.click(getByTestId('sign-checkbox'));
-    fireEvent.click(getByTestId('sign-submit'));
-
-    expect(getByTestId('exit-cards')).toBeTruthy();
-    expect(queryByTestId('batch-exit-cards')).toBeNull();
+    fireEvent.click(getByTestId('restart'));
+    expect(screen.getByTestId('restart-confirm')).toBeTruthy();
+    expect(onRestart).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('restart-confirm-ok-btn'));
+    expect(onRestart).toHaveBeenCalledTimes(1);
   });
 });
 
-describe('ReviewView queue journey (N>1)', () => {
-  const clearedFinding = () => makeFinding({ id: 'fx', disposition: 'replace' });
-
-  function signCurrent(getByTestId: (id: string) => HTMLElement): void {
-    fireEvent.click(getByTestId('goto-step-3'));
-    fireEvent.click(getByTestId('sign-checkbox'));
-    fireEvent.click(getByTestId('sign-submit'));
-  }
-
-  it('renders a queue bar and advances to the next unsigned item on sign', () => {
-    const items = many(makeReport([clearedFinding()]), makeReport([clearedFinding()]));
+describe('ReviewView queue triage + auto-advance (N>1)', () => {
+  it('renders a queue bar and triages each session', () => {
+    const items = many(makeReport([cf()]), makeReport([makeFinding({ id: 'a' }), makeFinding({ id: 'b' })]));
     const { getByTestId } = render(<ReviewView client={fakeClient()} items={items} />);
-
-    // Two-item queue → the bar shows 会话 1/2 and a chip per item.
     expect(getByTestId('queue-bar').textContent).toContain('会话 1/2');
-    expect(getByTestId('queue-item-1')).toBeTruthy();
-    expect(getByTestId('queue-item-2')).toBeTruthy();
-
-    // ④ is gated until EVERY item is signed.
-    expect((getByTestId('goto-step-4') as HTMLButtonElement).disabled).toBe(true);
-
-    // Sign item 1 → auto-advance to item 2, and item 1's chip flips to 已签署.
-    signCurrent(getByTestId);
-    expect(getByTestId('queue-bar').textContent).toContain('会话 2/2');
-    expect(getByTestId('queue-item-1').getAttribute('data-state')).toBe('已签署');
-    // Still not all signed → ④ still gated.
-    expect((getByTestId('goto-step-4') as HTMLButtonElement).disabled).toBe(true);
+    expect(getByTestId('queue-item-1').getAttribute('data-state')).toBe('当前');
+    expect(getByTestId('queue-item-2').getAttribute('data-state')).toBe('待处置');
+    expect(getByTestId('queue-item-2').textContent).toContain('·2');
+    expect((getByTestId('goto-step-3') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('opens the batch exit cards only once every item is signed', () => {
-    const items = many(makeReport([clearedFinding()]), makeReport([clearedFinding()]));
-    const { getByTestId } = render(<ReviewView client={fakeClient()} items={items} />);
-
-    signCurrent(getByTestId); // item 1 → advances to item 2
-    signCurrent(getByTestId); // item 2 → all signed
-
-    expect(getByTestId('lock-badge').textContent).toContain('已签署');
-    expect((getByTestId('goto-step-4') as HTMLButtonElement).disabled).toBe(false);
-    // ④ auto-entered → the N>1 batch exit cards (both real exits).
-    expect(getByTestId('batch-exit-cards')).toBeTruthy();
-    expect(getByTestId('batch-exit-one')).toBeTruthy();
-    expect(getByTestId('batch-exit-two')).toBeTruthy();
+  it('cleaning the current session auto-advances to the next session with pending work', async () => {
+    const cleaned1 = makeReport([makeFinding({ id: 'a', ruleId: 'aws-access-token', disposition: 'replace' })]);
+    const batch = vi.fn(async () => ({ report: cleaned1, gate: cleaned1.gate }));
+    const items = many(
+      makeReport([makeFinding({ id: 'a', ruleId: 'aws-access-token', disposition: 'pending' })]),
+      makeReport([makeFinding({ id: 'b', ruleId: 'aws-access-token', disposition: 'pending' })]),
+    );
+    const { getByTestId } = render(<ReviewView client={fakeClient({ batch })} items={items} />);
+    fireEvent.click(getByTestId('clean-all'));
+    await waitFor(() => expect(getByTestId('queue-bar').textContent).toContain('会话 2/2'));
   });
 
-  it('a batch wizard per-session refusal jumps to that signed session at ② and edits stay void-guarded', async () => {
+  it('queue-clean-all clears the whole queue and advances to the exit step', async () => {
+    const cleaned = makeReport([makeFinding({ id: 'x', ruleId: 'aws-access-token', disposition: 'replace' })]);
+    const batch = vi.fn(async () => ({ report: cleaned, gate: cleaned.gate }));
+    const items = many(
+      makeReport([makeFinding({ id: 'a', ruleId: 'aws-access-token', disposition: 'pending' })]),
+      makeReport([makeFinding({ id: 'b', ruleId: 'aws-access-token', disposition: 'pending' })]),
+    );
+    const { getByTestId } = render(<ReviewView client={fakeClient({ batch })} items={items} />);
+    fireEvent.click(getByTestId('queue-clean-all'));
+    await waitFor(() => expect(getByTestId('batch-exit-cards')).toBeTruthy());
+  });
+});
+
+describe('ReviewView batch exit (N>1)', () => {
+  const PLAN = {
+    branch: 'contrib/USER_1/batch-abcd1234',
+    targetBranch: 'main',
+    prTitle: 'Add 2 sanitized sessions (<USER_1>)',
+    prBody: '## batch',
+    commitMessage: 'Add 2',
+    recordCount: 2,
+    ghAvailable: true,
+    stagedFiles: ['a.jsonl'],
+    commands: ['git checkout -b contrib/USER_1/batch-abcd1234'],
+    engine: {},
+    compareUrl: null,
+    totalRecordBytes: 42,
+    records: [
+      { sessionId: 'sess-a', recordPath: 'a.jsonl', provenancePath: 'a.provenance.json', recordBytes: 21, contentHash: 'a'.repeat(64), messages: 2 },
+      { sessionId: 'sess-b', recordPath: 'b.jsonl', provenancePath: 'b.provenance.json', recordBytes: 21, contentHash: 'b'.repeat(64), messages: 3 },
+    ],
+  };
+
+  const twoCleared = () => many(makeReport([cf()]), makeReport([cf()]));
+
+  it('gates the batch wizard behind the affirm dialog, then a refusal jump stays void-guarded', async () => {
     const setDisposition = vi.fn(async () => {
       const r = makeReport([makeFinding({ id: 'fx', disposition: 'delete' })]);
       return { report: r, gate: r.gate };
     });
     const client = fakeClient({
       setDisposition,
-      getPreflight: vi.fn(async () => ({
-        dataRepoConfigured: true,
-        gitAvailable: true,
-        ghAvailable: true,
-        ghAuthenticated: true,
-        repoClean: true,
-      })),
+      getPreflight: vi.fn(async () => READY),
       publishBatchPlan: vi.fn(async () => ({
         ok: false as const,
         error: 'refused',
@@ -254,24 +334,18 @@ describe('ReviewView queue journey (N>1)', () => {
         ],
       })),
     });
-    const items = many(makeReport([clearedFinding()]), makeReport([clearedFinding()]));
-    const { getByTestId, findByTestId } = render(<ReviewView client={client} items={items} />);
+    const { getByTestId, findByTestId } = render(<ReviewView client={client} items={twoCleared()} />);
 
-    signCurrent(getByTestId); // item 1 → item 2
-    signCurrent(getByTestId); // item 2 → all signed, at ④, current = item 2
-
-    // Open the batch wizard → its pre-check refuses and names session r1.
+    fireEvent.click(getByTestId('goto-step-3'));
     await waitFor(() => expect((getByTestId('batch-exit-one-cta') as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(getByTestId('batch-exit-one-cta'));
+    expect(getByTestId('affirm-dialog')).toBeTruthy();
+    fireEvent.click(getByTestId('affirm-confirm'));
+
     const jump = await findByTestId('jump-to-session-r1-aws-access-token');
     fireEvent.click(jump);
-
-    // Jumped to session 1's step ② (current switched from item 2 to item 1).
     expect(getByTestId('queue-bar').textContent).toContain('会话 1/2');
-    expect(getByTestId('disposition-workspace')).toBeTruthy();
 
-    // Session 1 is signed → editing a disposition must go through the void confirm,
-    // NOT straight to the daemon (the signature-void guard survives the jump).
     fireEvent.click(getByTestId('disp-fx-delete'));
     expect(screen.getByTestId('dialog-confirm')).toBeTruthy();
     expect(setDisposition).not.toHaveBeenCalled();
@@ -279,58 +353,23 @@ describe('ReviewView queue journey (N>1)', () => {
 
   it('a successful batch publish marks the journey 已完成', async () => {
     const client = fakeClient({
-      getPreflight: vi.fn(async () => ({
-        dataRepoConfigured: true,
-        gitAvailable: true,
-        ghAvailable: true,
-        ghAuthenticated: true,
-        repoClean: true,
-      })),
-      publishBatchPlan: vi.fn(async () => ({
-        ok: true as const,
-        plan: {
-          branch: 'contrib/USER_1/batch-abcd1234',
-          targetBranch: 'main',
-          prTitle: 'Add 2 sanitized sessions (<USER_1>)',
-          prBody: '## Sanitized sessions contribution (batch)',
-          commitMessage: 'Add 2 sanitized sessions',
-          recordCount: 2,
-          ghAvailable: true,
-          stagedFiles: ['a.jsonl', 'a.provenance.json', 'b.jsonl', 'b.provenance.json'],
-          commands: ['git checkout -b contrib/USER_1/batch-abcd1234'],
-          engine: {},
-          compareUrl: null,
-          totalRecordBytes: 42,
-          records: [
-            { sessionId: 's1', recordPath: 'a.jsonl', provenancePath: 'a.provenance.json', recordBytes: 21, contentHash: 'a'.repeat(64), messages: 2 },
-            { sessionId: 's2', recordPath: 'b.jsonl', provenancePath: 'b.provenance.json', recordBytes: 21, contentHash: 'b'.repeat(64), messages: 3 },
-          ],
-        },
-      })),
+      getPreflight: vi.fn(async () => READY),
+      publishBatchPlan: vi.fn(async () => ({ ok: true as const, plan: PLAN })),
       publishBatchSubmit: vi.fn(async () => ({
         ok: true as const,
         result: {
           opened: true as const,
-          branch: 'contrib/USER_1/batch-abcd1234',
-          receipt: {
-            branch: 'contrib/USER_1/batch-abcd1234',
-            targetBranch: 'main',
-            prTitle: 'Add 2 sanitized sessions (<USER_1>)',
-            compareUrl: null,
-            submittedAt: '2026-07-10T00:00:00.000Z',
-            recordCount: 2,
-          },
+          branch: PLAN.branch,
+          receipt: { branch: PLAN.branch, targetBranch: 'main', prTitle: PLAN.prTitle, compareUrl: null, submittedAt: 'x', recordCount: 2 },
         },
       })),
     });
-    const items = many(makeReport([clearedFinding()]), makeReport([clearedFinding()]));
-    const { getByTestId, findByTestId } = render(<ReviewView client={client} items={items} />);
+    const { getByTestId, findByTestId } = render(<ReviewView client={client} items={twoCleared()} />);
 
-    signCurrent(getByTestId);
-    signCurrent(getByTestId);
-
+    fireEvent.click(getByTestId('goto-step-3'));
     await waitFor(() => expect((getByTestId('batch-exit-one-cta') as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(getByTestId('batch-exit-one-cta'));
+    fireEvent.click(getByTestId('affirm-confirm'));
     await findByTestId('batch-wizard-step-preview');
     fireEvent.click(getByTestId('batch-wizard-to-submit'));
     fireEvent.click(await findByTestId('batch-wizard-submit-btn'));
@@ -338,124 +377,5 @@ describe('ReviewView queue journey (N>1)', () => {
     await findByTestId('batch-published-badge');
     expect(client.publishBatchSubmit).toHaveBeenCalledWith(['r1', 'r2']);
     await waitFor(() => expect(getByTestId('lock-badge').textContent).toContain('已完成'));
-  });
-
-  it('editing one signed item voids only that item, re-locking the exit', async () => {
-    const afterEdit = makeReport([makeFinding({ id: 'fx', disposition: 'delete' })]);
-    const setDisposition = vi.fn(async () => ({ report: afterEdit, gate: afterEdit.gate }));
-    const client = fakeClient({ setDisposition });
-    const items = many(makeReport([clearedFinding()]), makeReport([clearedFinding()]));
-
-    const { getByTestId } = render(<ReviewView client={client} items={items} />);
-    signCurrent(getByTestId); // item 1 signed → on item 2
-    signCurrent(getByTestId); // item 2 signed → all signed, at ④
-
-    // Jump back to item 1 and edit its disposition → void-confirm intercepts.
-    fireEvent.click(getByTestId('queue-item-1'));
-    fireEvent.click(getByTestId('goto-step-2'));
-    fireEvent.click(getByTestId('disp-fx-delete'));
-    fireEvent.click(screen.getByTestId('dialog-confirm-ok-btn'));
-    expect(setDisposition).toHaveBeenCalledWith('r1', 'fx', 'delete');
-
-    // Only item 1's signature is voided → ④ re-locked; item 2 stays signed.
-    await waitFor(() => expect((getByTestId('goto-step-4') as HTMLButtonElement).disabled).toBe(true));
-    expect(getByTestId('queue-item-2').getAttribute('data-state')).toBe('已签署');
-  });
-
-  it('leaving the queue with progress prompts a restart confirm', () => {
-    const onRestart = vi.fn();
-    const items = many(makeReport([clearedFinding()]), makeReport([clearedFinding()]));
-    const { getByTestId } = render(
-      <ReviewView client={fakeClient()} items={items} onRestart={onRestart} />,
-    );
-
-    signCurrent(getByTestId); // makes the queue "touched"/signed
-    fireEvent.click(getByTestId('restart'));
-    expect(screen.getByTestId('restart-confirm')).toBeTruthy();
-    expect(onRestart).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByTestId('restart-confirm-ok-btn'));
-    expect(onRestart).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('ReviewView UX — triage, one-click clean, and the sign CTA', () => {
-  it('one-click clean replaces each pending non-meta rule once and never auto-disposes meta hits', async () => {
-    const report = makeReport([
-      makeFinding({ id: 'fx', ruleId: 'aws-access-token', disposition: 'pending' }),
-      makeFinding({ id: 'fy', ruleId: 'aws-access-token', disposition: 'pending' }),
-      // A meta/engine hit — must NOT be auto-disposed.
-      makeFinding({ id: 'meta1', ruleId: 'redos-guard', disposition: 'pending' }),
-    ]);
-    const cleaned = makeReport([
-      makeFinding({ id: 'fx', ruleId: 'aws-access-token', disposition: 'replace' }),
-      makeFinding({ id: 'fy', ruleId: 'aws-access-token', disposition: 'replace' }),
-      makeFinding({ id: 'meta1', ruleId: 'redos-guard', disposition: 'pending' }),
-    ]);
-    const batch = vi.fn(async (_reviewId: string, _by: string, _key: string, _disp: string) => ({
-      report: cleaned,
-      gate: cleaned.gate,
-    }));
-    const { getByTestId } = render(<ReviewView client={fakeClient({ batch })} items={one(report)} />);
-
-    // The clean card is offered (2 cleanable hits — the meta hit is excluded).
-    expect(getByTestId('clean-all-card').textContent).toContain('2 处');
-    fireEvent.click(getByTestId('clean-all'));
-
-    await waitFor(() => expect(batch).toHaveBeenCalledWith('r1', 'rule', 'aws-access-token', 'replace'));
-    // Exactly one distinct rule → one batch call; the meta rule is never auto-cleaned.
-    expect(batch).toHaveBeenCalledTimes(1);
-    expect(batch.mock.calls.some((c) => c[2] === 'redos-guard')).toBe(false);
-  });
-
-  it('offers the goto-sign CTA once cleared and advances to ③ on click', () => {
-    const cleared = makeReport([makeFinding({ id: 'fx', disposition: 'replace' })]);
-    const { getByTestId } = render(<ReviewView client={fakeClient()} items={one(cleared)} />);
-
-    // Gate unlocked at ② → the primary "go sign" CTA appears.
-    expect(getByTestId('cleared-banner')).toBeTruthy();
-    fireEvent.click(getByTestId('goto-sign'));
-    expect(getByTestId('signing-card')).toBeTruthy();
-  });
-
-  it('triages queue chips: pending (with hit count) vs no-work', () => {
-    const items = many(
-      makeReport([
-        makeFinding({ id: 'a', disposition: 'pending' }),
-        makeFinding({ id: 'b', disposition: 'pending' }),
-      ]),
-      makeReport([makeFinding({ id: 'c', disposition: 'replace' })]),
-    );
-    const { getByTestId } = render(<ReviewView client={fakeClient()} items={items} />);
-
-    const chip1 = getByTestId('queue-item-1');
-    expect(chip1.getAttribute('data-state')).toBe('待处置');
-    expect(chip1.textContent).toContain('·2'); // hit-count badge
-    expect(getByTestId('queue-item-2').getAttribute('data-state')).toBe('无需处置');
-  });
-
-  it('queue-clean-all cleans unsigned sessions and skips signed ones', async () => {
-    const item1 = makeReport([makeFinding({ id: 'a', disposition: 'replace' })]); // cleared → signable
-    const cleaned2 = makeReport([makeFinding({ id: 'b', ruleId: 'aws-access-token', disposition: 'replace' })]);
-    const batch = vi.fn(async (_reviewId: string, _by: string, _key: string, _disp: string) => ({
-      report: cleaned2,
-      gate: cleaned2.gate,
-    }));
-    const items = many(
-      item1,
-      makeReport([makeFinding({ id: 'b', ruleId: 'aws-access-token', disposition: 'pending' })]),
-    );
-    const { getByTestId } = render(<ReviewView client={fakeClient({ batch })} items={items} />);
-
-    // Sign session 1, auto-advancing to session 2 (session 1 now signed).
-    fireEvent.click(getByTestId('goto-step-3'));
-    fireEvent.click(getByTestId('sign-checkbox'));
-    fireEvent.click(getByTestId('sign-submit'));
-
-    // The queue-level clean button appears (only session 2 has a cleanable hit).
-    fireEvent.click(getByTestId('queue-clean-all'));
-    await waitFor(() => expect(batch).toHaveBeenCalledWith('r2', 'rule', 'aws-access-token', 'replace'));
-    // The signed session (r1) is skipped entirely.
-    expect(batch.mock.calls.some((c) => c[0] === 'r1')).toBe(false);
   });
 });

@@ -29,6 +29,12 @@ interface ExitCardsProps {
   onPublished: () => void;
   /** From the wizard's `precheck_refused` view: jump back to step ② for a rule. */
   onJumpToRule: (ruleId: string) => void;
+  /**
+   * Gate the first exit action behind the one-time donation confirm (design B3).
+   * Optional so `ExitCards` stays independently usable — defaults to running the
+   * action directly.
+   */
+  requireAffirm?: (proceed: () => void) => void;
 }
 
 /** Guidance text for each non-ready preflight state. */
@@ -48,10 +54,14 @@ export function ExitCards({
   onSubmitted,
   onPublished,
   onJumpToRule,
+  requireAffirm,
 }: ExitCardsProps): JSX.Element {
   const [showExport, setShowExport] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const { state, flags } = usePreflight(client);
+
+  // Route an exit action through the donation confirm if provided, else run it.
+  const guard = requireAffirm ?? ((proceed: () => void) => proceed());
 
   const ghReady = !!(flags?.ghAvailable && flags?.ghAuthenticated);
   const canPublish = state === '就绪' || state === 'gh未登录';
@@ -117,7 +127,7 @@ export function ExitCards({
               variant={canPublish ? 'default' : 'secondary'}
               className="mt-4 w-full"
               disabled={!canPublish}
-              onClick={() => setWizardOpen(true)}
+              onClick={() => guard(() => setWizardOpen(true))}
               data-testid="exit-one-cta"
             >
               {ctaLabel}
@@ -138,7 +148,13 @@ export function ExitCards({
             将本次会话直投到你选择的模型服务商，用于回放评测。含成本估算与双重知情确认。
           </p>
           <div className="mt-4">
-            <SubmitPanel client={client} reviewId={reviewId} gate={gate} onSubmitted={onSubmitted} />
+            <SubmitPanel
+              client={client}
+              reviewId={reviewId}
+              gate={gate}
+              onSubmitted={onSubmitted}
+              beforeSubmit={requireAffirm}
+            />
           </div>
         </section>
       </div>
@@ -149,10 +165,12 @@ export function ExitCards({
           type="button"
           variant="link"
           size="sm"
-          onClick={() => {
-            setShowExport(true);
-            onExport();
-          }}
+          onClick={() =>
+            guard(() => {
+              setShowExport(true);
+              onExport();
+            })
+          }
           disabled={!gate.unlocked || exporting}
           data-testid="export-secondary"
         >

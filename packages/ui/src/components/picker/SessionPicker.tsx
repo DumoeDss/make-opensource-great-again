@@ -20,7 +20,7 @@ import type { ApiClient } from '../../api/client';
 import type { ProjectAnnotation, QueueItem, SessionRef, SourceRef } from '../../api/types';
 import { Button } from '../ui/button';
 import { SessionCardGrid } from './SessionCardGrid';
-import { SourceTree, type SourceProjects } from './SourceTree';
+import { SourceTree, type Scope, type SourceProjects } from './SourceTree';
 
 /** Batch cap. Daemon `maxReviews` is 50 with LRU eviction; 20 keeps a wide margin. */
 export const MAX_BATCH = 20;
@@ -37,10 +37,14 @@ export function SessionPicker({ client, onQueueCreated }: SessionPickerProps): J
   const [sources, setSources] = useState<SourceRef[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [projectsBySource, setProjectsBySource] = useState<Record<string, SourceProjects | undefined>>({});
+  // Per-folder session cache (`${sourceId} ${projectKey}` → sessions), populated on
+  // folder-open and on scope selection; lets a re-tick reuse fetched sessions.
+  const [sessionsByProject, setSessionsByProject] = useState<Map<string, SessionRef[]>>(new Map());
   const [showAll, setShowAll] = useState(false);
   const [active, setActive] = useState<{ sourceId: string; projectKey: string; label: string } | null>(null);
   const [sessions, setSessions] = useState<SessionRef[]>([]);
   const [selection, setSelection] = useState<Map<string, SessionRef>>(new Map());
+  const [loadingScope, setLoadingScope] = useState<Scope | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Queue creation: progress line while scanning, and any per-session failures.
   const [progress, setProgress] = useState<{ k: number; n: number } | null>(null);
@@ -70,6 +74,29 @@ export function SessionPicker({ client, onQueueCreated }: SessionPickerProps): J
       .catch((e: unknown) => setError(String(e)));
   };
 
+  const sessionCacheKey = (sourceId: string, projectKey: string): string => `${sourceId} ${projectKey}`;
+
+  /** Load (respecting show-all) + cache a source's projects; returns them. */
+  const ensureProjects = async (sourceId: string): Promise<ProjectAnnotation[]> => {
+    const cached = projectsBySource[sourceId];
+    if (cached) return cached.projects;
+    const r = await client.listProjects(sourceId, showAll);
+    setProjectsBySource((m) => ({
+      ...m,
+      [sourceId]: { projects: r.projects, totalCount: r.totalCount, recommendedCount: r.recommendedCount },
+    }));
+    return r.projects;
+  };
+
+  /** Load + cache a folder's sessions; returns them. */
+  const ensureSessions = async (sourceId: string, projectKey: string): Promise<SessionRef[]> => {
+    const cached = sessionsByProject.get(sessionCacheKey(sourceId, projectKey));
+    if (cached) return cached;
+    const sess = await client.listSessions(sourceId, projectKey);
+    setSessionsByProject((prev) => new Map(prev).set(sessionCacheKey(sourceId, projectKey), sess));
+    return sess;
+  };
+
   const onToggleSource = (sourceId: string): void => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -85,9 +112,10 @@ export function SessionPicker({ client, onQueueCreated }: SessionPickerProps): J
 
   const onToggleShowAll = (value: boolean): void => {
     setShowAll(value);
-    // The recommended/all project set differs — invalidate the cache, drop the open
+    // The recommended/all project set differs — invalidate the caches, drop the open
     // folder, and re-fetch every currently-expanded source under the new scope.
     setProjectsBySource({});
+    setSessionsByProject(new Map());
     setActive(null);
     setSessions([]);
     for (const id of expanded) fetchProjects(id, value);
@@ -96,11 +124,80 @@ export function SessionPicker({ client, onQueueCreated }: SessionPickerProps): J
   const onSelectProject = (sourceId: string, project: ProjectAnnotation): void => {
     setActive({ sourceId, projectKey: project.key, label: project.label });
     setSessions([]);
-    client
-      .listSessions(sourceId, project.key)
+    ensureSessions(sourceId, project.key)
       .then(setSessions)
       .catch((e: unknown) => setError(String(e)));
   };
+
+  // ---- Scope selection (checkbox on 全部 / source / project) ------------------
+  const scopePrefix = (scope: Scope): string =>
+    scope.kind === 'all'
+      ? ''
+      : scope.kind === 'source'
+        ? `${scope.sourceId} `
+        : `${scope.sourceId} ${scope.projectKey} `;
+
+  const toggleScope = async (scope: Scope, checked: boolean): Promise<void> => {
+    if (!checked) {
+      // Unticking removes by selection-key prefix — no requests.
+      const prefix = scopePrefix(scope);
+      setSelection((prev) => {
+        const next = new Map(prev);
+        for (const key of [...next.keys()]) if (key.startsWith(prefix)) next.delete(key);
+        return next;
+      });
+      return;
+    }
+    // Ticking collects every session under the scope (fetching as needed) and adds
+    // to the selection up to the cap; the scope's checkbox spins while collecting.
+    setLoadingScope(scope);
+    setError(null);
+    try {
+      const targets: Array<{ sourceId: string; projectKey: string }> = [];
+      if (scope.kind === 'project') {
+        targets.push({ sourceId: scope.sourceId, projectKey: scope.projectKey });
+      } else if (scope.kind === 'source') {
+        for (const p of await ensureProjects(scope.sourceId)) {
+          targets.push({ sourceId: scope.sourceId, projectKey: p.key });
+        }
+      } else {
+        for (const s of sources) {
+          for (const p of await ensureProjects(s.id)) targets.push({ sourceId: s.id, projectKey: p.key });
+        }
+      }
+      const additions: SessionRef[] = [];
+      for (const t of targets) additions.push(...(await ensureSessions(t.sourceId, t.projectKey)));
+      setSelection((prev) => {
+        const next = new Map(prev);
+        for (const s of additions) {
+          const key = selectionKey(s);
+          if (next.has(key)) continue;
+          if (next.size >= MAX_BATCH) break;
+          next.set(key, s);
+        }
+        return next;
+      });
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoadingScope(null);
+    }
+  };
+
+  // Checked derivation (no indeterminate state): a project is checked when its
+  // cached sessions are all selected; a source when all its loaded projects are;
+  // 全部 when all loaded sources are. Not-yet-loaded nodes read as unchecked.
+  const isProjectChecked = (sourceId: string, projectKey: string): boolean => {
+    const sess = sessionsByProject.get(sessionCacheKey(sourceId, projectKey));
+    if (!sess || sess.length === 0) return false;
+    return sess.every((s) => selection.has(selectionKey(s)));
+  };
+  const isSourceChecked = (sourceId: string): boolean => {
+    const projs = projectsBySource[sourceId]?.projects;
+    if (!projs || projs.length === 0) return false;
+    return projs.every((p) => isProjectChecked(sourceId, p.key));
+  };
+  const allChecked = sources.length > 0 && sources.every((s) => isSourceChecked(s.id));
 
   const toggleSelect = (ref: SessionRef): void => {
     setSelection((prev) => {
@@ -175,6 +272,17 @@ export function SessionPicker({ client, onQueueCreated }: SessionPickerProps): J
           onToggleSource={onToggleSource}
           onSelectProject={onSelectProject}
           onToggleShowAll={onToggleShowAll}
+          allChecked={allChecked}
+          isSourceChecked={isSourceChecked}
+          isProjectChecked={isProjectChecked}
+          loadingScope={loadingScope}
+          onToggleAll={(checked) => void toggleScope({ kind: 'all' }, checked)}
+          onToggleSourceScope={(sourceId, checked) =>
+            void toggleScope({ kind: 'source', sourceId }, checked)
+          }
+          onToggleProjectScope={(sourceId, project, checked) =>
+            void toggleScope({ kind: 'project', sourceId, projectKey: project.key }, checked)
+          }
         />
         <SessionCardGrid
           folderLabel={active?.label ?? null}

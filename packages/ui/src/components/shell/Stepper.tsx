@@ -1,53 +1,50 @@
 /**
- * Stepper — the persistent 4-step journey rail (design B2/B3):
- * ①选择会话 → ②处置命中 → ③签署确认 → ④选择出口, with a right-aligned lock badge.
+ * Stepper — the persistent 3-step journey rail:
+ * ①选择会话 → ②处置命中 → ③选择出口, with a right-aligned lock badge.
  *
- * The badge has four states derived by the journey container:
- *   !cleared           → 还差 N 项解锁   (Lock)
- *   cleared && !signed → 已解锁          (Unlock)
- *   signed && !done    → 已签署          (CheckCircle2)
- *   completed          → 已完成          (CheckCircle2, success)
+ * Signing is no longer a step: donation confirmation is a single dialog raised
+ * before the first exit action (see `AffirmDialog`), so the journey is
+ * 处置 → 选择出口 → 确认. The badge has three states:
+ *   !cleared   → 还差 N 项解锁   (Lock)      — N = pending across the WHOLE queue
+ *   cleared    → 已解锁          (Unlock)
+ *   completed  → 已完成          (CheckCircle2, success)
  *
- * Steps ③ and ④ are gated: ③ is dimmed until `cleared`, ④ until `signed`.
- *
- * Steps ②③④ are the journey's navigation: each renders as a `<button>`
- * (`goto-step-N`) that calls `onNavigate`, disabled past `maxEnterable`. Step ①
+ * Step ③ is gated until every session's gate is cleared. Steps ②③ render as
+ * `<button>` (`goto-step-N`) navigation, disabled past `maxEnterable`; step ①
  * 「选择会话」 stays non-interactive display (returning to the picker is the header's
- * 「换会话」 link) so there is exactly one entry point, not two.
+ * 「换会话」 link) so there is exactly one entry point.
  */
 import { Check, CheckCircle2, Lock, Unlock } from 'lucide-react';
 
 import { cn } from '../../lib/cn';
 
 /** The 1-based journey step the user is currently on. */
-export type JourneyStep = 1 | 2 | 3 | 4;
+export type JourneyStep = 1 | 2 | 3;
 
 interface StepperProps {
   current: JourneyStep;
+  /** Every session's gate is unlocked. */
   cleared: boolean;
-  signed: boolean;
   completed: boolean;
-  /** Pending blocking + non-text count (only meaningful while !cleared). */
+  /** Pending blocking + non-text count across the WHOLE queue (only meaningful while !cleared). */
   pending: number;
-  /** The furthest enterable step; ②③④ buttons past this are disabled. */
+  /** The furthest enterable step; ②③ buttons past this are disabled. */
   maxEnterable: JourneyStep;
-  /** Navigate to an enterable step (②③④ only; ① is non-interactive display). */
+  /** Navigate to an enterable step (②③ only; ① is non-interactive display). */
   onNavigate: (n: JourneyStep) => void;
 }
 
 const STEPS: Array<{ n: JourneyStep; label: string }> = [
   { n: 1, label: '选择会话' },
   { n: 2, label: '处置命中' },
-  { n: 3, label: '签署确认' },
-  { n: 4, label: '选择出口' },
+  { n: 3, label: '选择出口' },
 ];
 
 function LockBadge({
   cleared,
-  signed,
   completed,
   pending,
-}: Pick<StepperProps, 'cleared' | 'signed' | 'completed' | 'pending'>): JSX.Element {
+}: Pick<StepperProps, 'cleared' | 'completed' | 'pending'>): JSX.Element {
   let label: string;
   let Icon = Lock;
   let tone = 'border-destructive/50 bg-destructive/10 text-destructive';
@@ -56,10 +53,6 @@ function LockBadge({
     label = '已完成';
     Icon = CheckCircle2;
     tone = 'border-success/60 bg-success/15 text-success';
-  } else if (signed) {
-    label = '已签署';
-    Icon = CheckCircle2;
-    tone = 'border-primary/50 bg-primary-soft/30 text-primary';
   } else if (cleared) {
     label = '已解锁';
     Icon = Unlock;
@@ -87,7 +80,6 @@ function LockBadge({
 export function Stepper({
   current,
   cleared,
-  signed,
   completed,
   pending,
   maxEnterable,
@@ -102,8 +94,8 @@ export function Stepper({
         {STEPS.map((step, i) => {
           const done = completed ? true : step.n < current;
           const isCurrent = !completed && step.n === current;
-          // ③ gated until cleared; ④ gated until signed.
-          const gated = (step.n === 3 && !cleared) || (step.n === 4 && !signed);
+          // ③ 选择出口 is gated until every session's gate is cleared.
+          const gated = step.n === 3 && !cleared;
           const content = (
             <span
               className={cn(
@@ -154,7 +146,7 @@ export function Stepper({
           );
         })}
       </ol>
-      <LockBadge cleared={cleared} signed={signed} completed={completed} pending={pending} />
+      <LockBadge cleared={cleared} completed={completed} pending={pending} />
     </div>
   );
 }

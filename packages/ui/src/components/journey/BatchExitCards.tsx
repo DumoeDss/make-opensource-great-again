@@ -42,6 +42,11 @@ interface BatchExitCardsProps {
   onSubmittedAll: () => void;
   /** From the wizard's `precheck_refused` view: jump back to a session's step ②. */
   onJumpToSession: (reviewId: string, ruleId: string) => void;
+  /**
+   * Gate the first batch exit action behind the one-time donation confirm (B3).
+   * Optional so the cards stay independently usable — defaults to running directly.
+   */
+  requireAffirm?: (proceed: () => void) => void;
 }
 
 /** Guidance text for each non-ready preflight state (mirrors the single ExitCards). */
@@ -57,11 +62,15 @@ export function BatchExitCards({
   onPublished,
   onSubmittedAll,
   onJumpToSession,
+  requireAffirm,
 }: BatchExitCardsProps): JSX.Element {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const { state, flags } = usePreflight(client);
+
+  // Route an exit action through the donation confirm if provided, else run it.
+  const guard = requireAffirm ?? ((proceed: () => void) => proceed());
 
   const ghReady = !!(flags?.ghAvailable && flags?.ghAuthenticated);
   const canPublish = state === '就绪' || state === 'gh未登录';
@@ -154,7 +163,7 @@ export function BatchExitCards({
               variant={canPublish ? 'default' : 'secondary'}
               className="mt-4 w-full"
               disabled={!canPublish}
-              onClick={() => setWizardOpen(true)}
+              onClick={() => guard(() => setWizardOpen(true))}
               data-testid="batch-exit-one-cta"
             >
               {ctaLabel}
@@ -175,7 +184,12 @@ export function BatchExitCards({
             将 {items.length} 条会话逐条直投到你选择的模型服务商，含总成本估算与逐条内容绑定的知情确认。
           </p>
           <div className="mt-4">
-            <BatchSubmitPanel client={client} items={items} onSubmittedAll={onSubmittedAll} />
+            <BatchSubmitPanel
+              client={client}
+              items={items}
+              onSubmittedAll={onSubmittedAll}
+              beforeRun={requireAffirm}
+            />
           </div>
         </section>
       </div>
@@ -188,7 +202,7 @@ export function BatchExitCards({
             type="button"
             variant="link"
             size="sm"
-            onClick={() => void downloadAll()}
+            onClick={() => guard(() => void downloadAll())}
             disabled={busy !== null}
             data-testid="batch-export-all"
           >
@@ -213,7 +227,7 @@ export function BatchExitCards({
                     variant="secondary"
                     size="sm"
                     disabled={busy === item.reviewId}
-                    onClick={() => void download(item)}
+                    onClick={() => guard(() => void download(item))}
                     data-testid={`batch-download-${item.sessionId}`}
                   >
                     <Download className="h-4 w-4" strokeWidth={1.5} />

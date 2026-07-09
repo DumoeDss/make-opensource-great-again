@@ -38,11 +38,17 @@ interface BatchSubmitPanelProps {
   items: BatchSubmitItem[];
   /** Fires once every item has a successful receipt → the journey's 已完成 state. */
   onSubmittedAll: () => void;
+  /**
+   * Gate the batch run behind the journey's one-time donation confirm (design B3).
+   * Optional — absent = run directly. Per-item retries are NOT gated (by then the
+   * confirm has already been given).
+   */
+  beforeRun?: (proceed: () => void) => void;
 }
 
 type ItemResult = { ok: true; receipt: SubmissionReceipt } | { ok: false; error: string };
 
-export function BatchSubmitPanel({ client, items, onSubmittedAll }: BatchSubmitPanelProps): JSX.Element {
+export function BatchSubmitPanel({ client, items, onSubmittedAll, beforeRun }: BatchSubmitPanelProps): JSX.Element {
   const [providers, setProviders] = useState<ProviderTarget[]>([]);
   const [providerId, setProviderId] = useState('');
   const [model, setModel] = useState('');
@@ -313,7 +319,7 @@ export function BatchSubmitPanel({ client, items, onSubmittedAll }: BatchSubmitP
 
       <Button
         type="button"
-        onClick={() => void onRunAll()}
+        onClick={() => (beforeRun ? beforeRun(() => void onRunAll()) : void onRunAll())}
         disabled={!canRun}
         size="lg"
         data-testid="batch-submit-run"
