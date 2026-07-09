@@ -25,8 +25,6 @@ interface SessionCardGridProps {
   onToggle: (ref: SessionRef) => void;
   onSelectAll: () => void;
   onClear: () => void;
-  /** True once the selection is at `MAX_BATCH`; unselected cards can't be added. */
-  atCap: boolean;
 }
 
 export function SessionCardGrid({
@@ -37,7 +35,6 @@ export function SessionCardGrid({
   onToggle,
   onSelectAll,
   onClear,
-  atCap,
 }: SessionCardGridProps): JSX.Element {
   if (folderLabel === null) {
     return (
@@ -90,14 +87,11 @@ export function SessionCardGrid({
           <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(240px,1fr))]">
           {sessions.map((session) => {
             const selected = selection.has(selectionKey(session));
-            // At cap, unselected cards are inert (can't push past MAX_BATCH).
-            const disabled = !selected && atCap;
             return (
               <button
                 key={session.id}
                 type="button"
                 onClick={() => onToggle(session)}
-                disabled={disabled}
                 aria-pressed={selected}
                 data-testid={`session-card-${session.id}`}
                 className={cn(
@@ -105,7 +99,6 @@ export function SessionCardGrid({
                   selected
                     ? 'border-primary bg-primary-soft/25'
                     : 'border-border bg-surface-1 hover:border-text-subtle/40',
-                  disabled && 'cursor-not-allowed opacity-40',
                 )}
               >
                 <div className="flex items-start gap-2">

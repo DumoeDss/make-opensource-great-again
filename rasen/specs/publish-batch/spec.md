@@ -52,7 +52,7 @@ Batch staging SHALL write all N records + provenance sidecars + the PR body file
 
 ### Requirement: Daemon batch publish routes with per-review attribution
 
-The daemon SHALL expose `POST /api/publish/batch/plan|stage|submit` accepting `{ reviewIds: string[] }` (validated: 1–20 items, deduplicated). Every review SHALL be checked individually and failures SHALL name the offending review: an unknown review yields 404 with its `reviewId`; a locked gate yields 409 `GATE_LOCKED` with the `reviewId` and gate. A pre-check refusal SHALL yield 422 `precheck_refused` with `blockingBySession` entries of `{ reviewId, sessionId, blockingByRule }` — rule-aggregated counts only, never raw matched values. All other error codes SHALL reuse the existing publish taxonomy unchanged.
+The daemon SHALL expose `POST /api/publish/batch/plan|stage|submit` accepting `{ reviewIds: string[] }` (validated: 1–500 items, deduplicated — 500 aligns with the daemon review capacity). Every review SHALL be checked individually and failures SHALL name the offending review: an unknown review yields 404 with its `reviewId`; a locked gate yields 409 `GATE_LOCKED` with the `reviewId` and gate. A pre-check refusal SHALL yield 422 `precheck_refused` with `blockingBySession` entries of `{ reviewId, sessionId, blockingByRule }` — rule-aggregated counts only, never raw matched values. All other error codes SHALL reuse the existing publish taxonomy unchanged.
 
 #### Scenario: Locked review is named in the batch refusal
 
@@ -66,7 +66,7 @@ The daemon SHALL expose `POST /api/publish/batch/plan|stage|submit` accepting `{
 
 #### Scenario: Oversized or empty batches are rejected
 
-- **WHEN** a batch request names zero or more than 20 reviewIds
+- **WHEN** a batch request names zero or more than 500 reviewIds
 - **THEN** the request is rejected as invalid before any review or git work runs
 
 ### Requirement: Batch routes share the single-flight mutex and UI-safe plan discipline

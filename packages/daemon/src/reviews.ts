@@ -30,8 +30,12 @@ export interface ReviewState {
   rulesetWarnings: RulesetWarning[];
 }
 
-/** Default cap on concurrent in-memory reviews before LRU eviction. */
-export const DEFAULT_MAX_REVIEWS = 50;
+/**
+ * Default cap on concurrent in-memory reviews before LRU eviction. Raised to 500
+ * to support large batch queues (the picker no longer caps the selection); the LRU
+ * still bounds memory, it just sits far above any realistic single batch.
+ */
+export const DEFAULT_MAX_REVIEWS = 500;
 
 export class ReviewStore {
   // Insertion order in a Map is iteration order, so the first key is the LRU

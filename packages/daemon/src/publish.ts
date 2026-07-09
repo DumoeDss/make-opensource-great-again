@@ -36,8 +36,8 @@ import { z } from 'zod';
 import type { HandlerResult, Route } from './http.js';
 import type { ReviewStore } from './reviews.js';
 
-/** Batch publish request body: 1–20 reviewIds (deduped downstream). */
-const BatchReviewIdsBody = z.object({ reviewIds: z.array(z.string()).min(1).max(20) });
+/** Batch publish request body: 1–500 reviewIds (deduped downstream; 500 aligns with `maxReviews`). */
+const BatchReviewIdsBody = z.object({ reviewIds: z.array(z.string()).min(1).max(500) });
 
 /** Rule-aggregated blocking counts — never the raw matched values (leak guard). */
 function aggregateBlockingByRule(findings: Finding[]): Array<{ ruleId: string; count: number }> {

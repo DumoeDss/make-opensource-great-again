@@ -5,7 +5,7 @@
  *
  * Every node carries a selection CHECKBOX (source / project) plus a top-level
  * 「选择全部项目」; ticking a node selects all sessions under it (respecting the
- * visible scope + the batch cap), unticking removes that range. The 「显示全部项目」
+ * visible scope), unticking removes that range. The 「显示全部项目」
  * whitelist opt-in (recommended-by-default) is preserved but moved to the pinned
  * BOTTOM of the pane. Project rows reveal the full `cwd` path via a native tooltip.
  *

@@ -3,8 +3,8 @@
  * `SourceTree` + right `SessionCardGrid` and owns all of the picker's state:
  *   - tree data fetches (`listSources` / `listProjects` / `listSessions`), with
  *     projects loaded lazily on first expand and cached per source;
- *   - the cross-folder selection `Map` (keyed `${sourceId} ${projectKey} ${id}`,
- *     capped at `MAX_BATCH`) that a persistent selection bar summarizes;
+ *   - the cross-folder selection `Map` (keyed `${sourceId} ${projectKey} ${id}`)
+ *     that a persistent selection bar summarizes;
  *   - queue creation: serial `createReview` per selected session with a scan
  *     progress line, collecting per-session failures so the successful remainder
  *     can still proceed.
@@ -21,9 +21,6 @@ import type { ProjectAnnotation, QueueItem, SessionRef, SourceRef } from '../../
 import { Button } from '../ui/button';
 import { SessionCardGrid } from './SessionCardGrid';
 import { SourceTree, type Scope, type SourceProjects } from './SourceTree';
-
-/** Batch cap. Daemon `maxReviews` is 50 with LRU eviction; 20 keeps a wide margin. */
-export const MAX_BATCH = 20;
 
 interface SessionPickerProps {
   client: ApiClient;
@@ -149,7 +146,7 @@ export function SessionPicker({ client, onQueueCreated }: SessionPickerProps): J
       return;
     }
     // Ticking collects every session under the scope (fetching as needed) and adds
-    // to the selection up to the cap; the scope's checkbox spins while collecting.
+    // them to the selection; the scope's checkbox spins while collecting.
     setLoadingScope(scope);
     setError(null);
     try {
@@ -171,9 +168,7 @@ export function SessionPicker({ client, onQueueCreated }: SessionPickerProps): J
         const next = new Map(prev);
         for (const s of additions) {
           const key = selectionKey(s);
-          if (next.has(key)) continue;
-          if (next.size >= MAX_BATCH) break;
-          next.set(key, s);
+          if (!next.has(key)) next.set(key, s);
         }
         return next;
       });
@@ -204,7 +199,7 @@ export function SessionPicker({ client, onQueueCreated }: SessionPickerProps): J
       const next = new Map(prev);
       const key = selectionKey(ref);
       if (next.has(key)) next.delete(key);
-      else if (next.size < MAX_BATCH) next.set(key, ref);
+      else next.set(key, ref);
       return next;
     });
   };
@@ -212,17 +207,12 @@ export function SessionPicker({ client, onQueueCreated }: SessionPickerProps): J
   const selectAll = (): void => {
     setSelection((prev) => {
       const next = new Map(prev);
-      for (const s of sessions) {
-        if (next.size >= MAX_BATCH) break;
-        next.set(selectionKey(s), s);
-      }
+      for (const s of sessions) next.set(selectionKey(s), s);
       return next;
     });
   };
 
   const clearSelection = (): void => setSelection(new Map());
-
-  const atCap = selection.size >= MAX_BATCH;
 
   const startReview = async (): Promise<void> => {
     const refs = [...selection.values()];
@@ -292,7 +282,6 @@ export function SessionPicker({ client, onQueueCreated }: SessionPickerProps): J
           onToggle={toggleSelect}
           onSelectAll={selectAll}
           onClear={clearSelection}
-          atCap={atCap}
         />
       </div>
 
@@ -304,9 +293,6 @@ export function SessionPicker({ client, onQueueCreated }: SessionPickerProps): J
         >
           <div className="text-sm">
             <span className="font-medium">已选 {selection.size} 个会话</span>
-            {atCap && (
-              <span className="ml-2 text-xs text-warning">最多可选 {MAX_BATCH} 个，超出请分批。</span>
-            )}
           </div>
           <Button
             type="button"

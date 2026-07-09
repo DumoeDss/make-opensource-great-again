@@ -24,7 +24,7 @@ The picker SHALL present a two-pane layout: a left tree of sources (CLI types) a
 
 ### Requirement: Session card grid with multi-select
 
-The session grid SHALL render one card per session showing the title (truncated, with the full title available via a hover tooltip), a relative last-updated time (platform `Intl.RelativeTimeFormat`, no third-party dependency), and a humanized size. Clicking a card SHALL toggle its selection; the grid SHALL offer a select-all control scoped to the shown folder and a clear control that empties the ENTIRE cross-folder selection set. The selection set SHALL accumulate across folders and sources, keyed by `sourceId+projectKey+sessionId`, and SHALL be capped at 20 items with a visible hint when the cap is reached. A selection bar SHALL show the total selected count and the start-review call to action.
+The session grid SHALL render one card per session showing the title (truncated, with the full title available via a hover tooltip), a relative last-updated time (platform `Intl.RelativeTimeFormat`, no third-party dependency), and a humanized size. Clicking a card SHALL toggle its selection; the grid SHALL offer a select-all control scoped to the shown folder and a clear control that empties the ENTIRE cross-folder selection set. The selection set SHALL accumulate across folders and sources, keyed by `sourceId+projectKey+sessionId`, with no UI-imposed size cap (the daemon's review capacity is the only bound). A selection bar SHALL show the total selected count and the start-review call to action.
 
 #### Scenario: Card click toggles selection
 
@@ -34,17 +34,12 @@ The session grid SHALL render one card per session showing the title (truncated,
 #### Scenario: Select-all selects the shown folder
 
 - **WHEN** the user activates select-all with a project's sessions shown
-- **THEN** all of that folder's sessions join the selection set, subject to the 20-item cap
+- **THEN** all of that folder's sessions join the selection set
 
 #### Scenario: Selection accumulates across folders
 
 - **WHEN** the user selects sessions in one project, then navigates to another project and selects more
 - **THEN** the selection bar counts both folders' selections and starting the review includes all of them
-
-#### Scenario: Selection cap is enforced with a hint
-
-- **WHEN** the selection set holds 20 sessions and the user tries to add another
-- **THEN** the addition is refused and the UI shows the cap hint (批量上限 20，请分批)
 
 ### Requirement: Queue creation from the selection
 
@@ -100,12 +95,12 @@ The journey SHALL offer a one-click rule-based cleanup that replaces every CLEAN
 
 ### Requirement: Scoped tree selection checkboxes
 
-The tree SHALL provide selection checkboxes at three scopes: a top-level 「选择全部项目」, one per source header, and one per project row. Ticking a scope SHALL select every session under it — fetching projects (respecting the show-all scope) and sessions as needed, adding to the cross-folder selection up to the 20-item cap, with the ticked checkbox showing a spinner while collecting. Unticking a scope SHALL remove that range from the selection by selection-key prefix, issuing NO requests. A scope's checkbox SHALL read as checked only when all of its (loaded) sessions are selected (no indeterminate state); not-yet-loaded nodes read as unchecked. The scope checkboxes SHALL NOT trigger the row's expand/open behaviour.
+The tree SHALL provide selection checkboxes at three scopes: a top-level 「选择全部项目」, one per source header, and one per project row. Ticking a scope SHALL select every session under it — fetching projects (respecting the show-all scope) and sessions as needed, adding to the cross-folder selection, with the ticked checkbox showing a spinner while collecting. Unticking a scope SHALL remove that range from the selection by selection-key prefix, issuing NO requests. A scope's checkbox SHALL read as checked only when all of its (loaded) sessions are selected (no indeterminate state); not-yet-loaded nodes read as unchecked. The scope checkboxes SHALL NOT trigger the row's expand/open behaviour.
 
 #### Scenario: Ticking a project selects all its sessions
 
 - **WHEN** the user ticks a project's checkbox
-- **THEN** the UI loads that folder's sessions (if not cached) and adds them all to the selection, subject to the 20-item cap
+- **THEN** the UI loads that folder's sessions (if not cached) and adds them all to the selection
 
 #### Scenario: Unticking removes by prefix with no requests
 
@@ -114,6 +109,6 @@ The tree SHALL provide selection checkboxes at three scopes: a top-level 「选�
 
 #### Scenario: Select-all-projects fans out and caps
 
-- **WHEN** the user ticks 「选择全部项目」 and the visible scope holds more than 20 sessions across sources
-- **THEN** sessions are collected across sources and added up to the 20-item cap, with the cap hint shown
+- **WHEN** the user ticks 「选择全部项目」 with sessions across multiple sources in the visible scope
+- **THEN** sessions are collected across sources and all added to the selection
 

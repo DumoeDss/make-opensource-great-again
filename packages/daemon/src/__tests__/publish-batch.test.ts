@@ -232,7 +232,7 @@ describe('批量 出口① publish routes', () => {
       const empty = await postJson(base, '/api/publish/batch/plan', { reviewIds: [] });
       expect(empty.status).toBe(400);
       const oversized = await postJson(base, '/api/publish/batch/plan', {
-        reviewIds: Array.from({ length: 21 }, (_, i) => `r${i}`),
+        reviewIds: Array.from({ length: 501 }, (_, i) => `r${i}`),
       });
       expect(oversized.status).toBe(400);
       // Neither touched git.

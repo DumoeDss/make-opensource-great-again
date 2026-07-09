@@ -81,7 +81,9 @@ export interface AppOptions {
   customRulesPath?: string;
   /**
    * Max concurrent reviews held in memory before the least-recently-used one is
-   * evicted (bounded memory). Defaults to 50.
+   * evicted (bounded memory). Defaults to 500 — raised to support large batch
+   * queues now that the picker no longer caps the selection; the LRU still bounds
+   * memory, it just sits far above any realistic single batch.
    */
   maxReviews?: number;
   /** Override the review `exportedAt`/`generatedAt` for deterministic tests. */

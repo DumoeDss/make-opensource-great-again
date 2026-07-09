@@ -146,7 +146,7 @@ describe('SessionPicker selection', () => {
     expect(queryByTestId('selection-bar')).toBeNull();
   });
 
-  it('caps the selection at 20 with a hint when selecting past the cap', async () => {
+  it('select-all takes the whole folder with no cap or hint', async () => {
     const listProjects = vi.fn(
       async (): Promise<ProjectsResponse> => ({
         projects: [proj('src-a', 'a1')],
@@ -156,7 +156,7 @@ describe('SessionPicker selection', () => {
       }),
     );
     const listSessions = vi.fn(async () =>
-      Array.from({ length: 21 }, (_, i) => sess('a1', `s${i}`)),
+      Array.from({ length: 25 }, (_, i) => sess('a1', `s${i}`)),
     );
     const client = fakeClient({ listProjects, listSessions });
 
@@ -169,8 +169,8 @@ describe('SessionPicker selection', () => {
 
     fireEvent.click(getByTestId('select-all'));
     const bar = getByTestId('selection-bar');
-    expect(bar.textContent).toContain('已选 20');
-    expect(bar.textContent).toContain('最多可选 20');
+    expect(bar.textContent).toContain('已选 25');
+    expect(bar.textContent).not.toContain('最多可选');
   });
 });
 
@@ -320,7 +320,7 @@ describe('SessionPicker scope selection (tree checkboxes)', () => {
     expect(listSessions.mock.calls.length).toBe(callsAfterSelect);
   });
 
-  it('select-all-projects fans out across sources and truncates at the cap', async () => {
+  it('select-all-projects fans out across every source with no cap', async () => {
     const listProjects = vi.fn(
       async (sourceId: string): Promise<ProjectsResponse> => ({
         projects: sourceId === 'src-a' ? [proj('src-a', 'a1')] : [proj('src-b', 'b1')],
@@ -337,9 +337,9 @@ describe('SessionPicker scope selection (tree checkboxes)', () => {
     );
     await waitFor(() => expect(getByTestId('select-all-projects')).toBeTruthy());
 
-    // 2 sources × 15 sessions = 30 available → capped to 20.
+    // 2 sources × 15 sessions = 30 available → all 30 selected (no cap).
     fireEvent.click(getByTestId('select-all-projects'));
-    await waitFor(() => expect(getByTestId('selection-bar').textContent).toContain('已选 20'));
-    expect(getByTestId('selection-bar').textContent).toContain('最多可选 20');
+    await waitFor(() => expect(getByTestId('selection-bar').textContent).toContain('已选 30'));
+    expect(getByTestId('selection-bar').textContent).not.toContain('最多可选');
   });
 });
