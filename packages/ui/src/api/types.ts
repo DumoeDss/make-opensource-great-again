@@ -30,6 +30,12 @@ export type {
   SubmissionReceipt,
 };
 
+/** The daemon `/api/health` response (name + version, no secrets). */
+export interface HealthResponse {
+  name: string;
+  version: string;
+}
+
 /** A selectable direct-submit provider (key-free — never carries a key). */
 export interface ProviderTarget {
   id: string;

@@ -1,0 +1,54 @@
+{
+  "pipeline": "small-feature",
+  "classification": "small-feature",
+  "tier": "A",
+  "stages": {
+    "propose": {
+      "status": "done",
+      "worker": {
+        "role": "planner",
+        "agentName": "planner-v03"
+      },
+      "note": "28 tasks, strict valid; honors slice-1 commitments (radix dialog, 3-state theme, Badge span fix); GateBanner dissolves into lock badge + signing card"
+    },
+    "apply": {
+      "status": "done",
+      "worker": {
+        "role": "implementer",
+        "agentName": "implementer-s2"
+      },
+      "note": "28/28; 194 tests green (+5 net); GateBanner dissolved; 2 flagged deviations (L3 batch control kept, receipt-in-SubmitPanel) pending reviewer adjudication"
+    },
+    "verify": {
+      "status": "done",
+      "worker": {
+        "role": "reviewer",
+        "agentName": "reviewer-s2"
+      },
+      "note": "FINDINGS 0B/0M/2min/2triv, shippable; gates re-run green 194/194; both deviations ACCEPTED"
+    },
+    "review-loop": {
+      "status": "done",
+      "note": "F1 (spec-text contradiction) fixed inline by LEAD per reviewer recommended wording, strict re-validate passed; F2/F3/F4 accepted-known. 0 fix rounds needed."
+    },
+    "ship": {
+      "status": "in_progress",
+      "worker": {
+        "role": "shipper",
+        "agentName": "shipper-s1",
+        "model": "sonnet"
+      }
+    },
+    "archive": {
+      "status": "pending"
+    }
+  },
+  "rounds": 0,
+  "openFindings": [],
+  "notes": "Gates pre-authorized. Root rasen/. CLI rasen fork via node path.",
+  "acceptedKnown": [
+    "F2 Minor: no test for export-secondary exportReview / export 409 branch (not a regression)",
+    "F3 Trivial: badge stays 已完成 when navigating back to ② until an edit confirmed (cosmetic)",
+    "F4 Trivial: dialog.tsx inert non-token classes from verbatim port"
+  ]
+}

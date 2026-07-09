@@ -8,6 +8,7 @@ import type {
   SubmissionReceipt,
   SubmitEstimate,
 } from '../api/types';
+import { AdvancedFold } from './ui/advanced-fold';
 import { Button } from './ui/button';
 
 const SELECT_CLASS =
@@ -19,6 +20,8 @@ interface SubmitPanelProps {
   client: ApiClient;
   reviewId: string;
   gate: SanitizationReport['gate'];
+  /** Notifies the journey container so it can mark step ④ completed. */
+  onSubmitted?: (receipt: SubmissionReceipt) => void;
 }
 
 /**
@@ -29,7 +32,7 @@ interface SubmitPanelProps {
  * POSTs the submit with a content-bound consent record; the daemon re-runs the
  * pre-send backstop and returns a key-free receipt.
  */
-export function SubmitPanel({ client, reviewId, gate }: SubmitPanelProps): JSX.Element {
+export function SubmitPanel({ client, reviewId, gate, onSubmitted }: SubmitPanelProps): JSX.Element {
   const [providers, setProviders] = useState<ProviderTarget[]>([]);
   const [providerId, setProviderId] = useState('');
   const [model, setModel] = useState('');
@@ -104,8 +107,10 @@ export function SubmitPanel({ client, reviewId, gate }: SubmitPanelProps): JSX.E
       },
     });
     setBusy(false);
-    if (result.ok) setReceipt(result.receipt);
-    else setError(`Submit refused (${result.status}): ${result.error}`);
+    if (result.ok) {
+      setReceipt(result.receipt);
+      onSubmitted?.(result.receipt);
+    } else setError(`Submit refused (${result.status}): ${result.error}`);
   };
 
   return (
@@ -249,13 +254,21 @@ export function SubmitPanel({ client, reviewId, gate }: SubmitPanelProps): JSX.E
       )}
 
       {receipt && (
-        <div data-testid="submit-receipt">
-          <p className="mb-1 text-sm font-medium text-success">
-            Submitted to {receipt.targetProviderId} / {receipt.targetModel} — backstop passed.
+        <div className="space-y-3 rounded-md border border-success/50 bg-success/10 p-4" data-testid="submit-receipt">
+          <p className="text-sm font-medium text-success">
+            已直投 {receipt.targetProviderId} / {receipt.targetModel} — 预发送防线通过。
           </p>
-          <pre className="max-h-72 overflow-auto rounded-md bg-surface-2 p-3 font-mono text-xs text-text-muted">
-            {JSON.stringify(receipt, null, 2)}
-          </pre>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+            <dt className="text-text-muted">目标</dt>
+            <dd className="font-mono">{receipt.targetProviderId} / {receipt.targetModel}</dd>
+            <dt className="text-text-muted">回放模式</dt>
+            <dd className="font-mono">{receipt.replayMode}</dd>
+          </dl>
+          <AdvancedFold label="高级：原始回执 JSON" data-testid="receipt-advanced">
+            <pre className="max-h-72 overflow-auto rounded-md bg-surface-2 p-3 font-mono text-xs text-text-muted">
+              {JSON.stringify(receipt, null, 2)}
+            </pre>
+          </AdvancedFold>
         </div>
       )}
     </div>

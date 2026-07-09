@@ -10,8 +10,10 @@
       "pipeline": "small-feature",
       "prereqs": [],
       "mode": "serial",
-      "status": "shipping-archived",
-      "ship": "49e430d"
+      "status": "done",
+      "ship": "49e430d",
+      "archive": "b479a3f",
+      "archivedPath": "rasen/changes/archive/2026-07-09-mosga-v03-ui-design-system"
     },
     {
       "id": "mosga-v03-ui-journey-shell",

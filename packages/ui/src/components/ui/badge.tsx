@@ -21,12 +21,14 @@ const badgeVariants = cva(
   },
 );
 
-type BadgeProps = React.HTMLAttributes<HTMLDivElement> &
+type BadgeProps = React.HTMLAttributes<HTMLSpanElement> &
   VariantProps<typeof badgeVariants>;
 
+// Renders a <span> (inline-flex) so it nests validly inside a <button> (e.g.
+// Picker's project rows) — a <div> there is invalid HTML. Visually identical.
 function Badge({ className, variant, ...props }: BadgeProps) {
   return (
-    <div className={cn(badgeVariants({ variant }), className)} {...props} />
+    <span className={cn(badgeVariants({ variant }), className)} {...props} />
   );
 }
 

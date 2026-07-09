@@ -7,6 +7,7 @@ import type {
   CreateReviewResponse,
   Disposition,
   ExportResponse,
+  HealthResponse,
   NonTextDisposition,
   NormalizationCategory,
   ProjectsResponse,
@@ -21,6 +22,7 @@ import type {
 } from './types';
 
 export interface ApiClient {
+  getHealth(): Promise<HealthResponse>;
   listSources(): Promise<SourceRef[]>;
   listProjects(sourceId: string, showAll: boolean): Promise<ProjectsResponse>;
   listSessions(sourceId: string, projectKey: string): Promise<SessionRef[]>;
@@ -64,6 +66,9 @@ function post(url: string, body?: unknown): Promise<Response> {
 }
 
 export const apiClient: ApiClient = {
+  async getHealth() {
+    return json<HealthResponse>(await fetch('/api/health'));
+  },
   async listSources() {
     const data = await json<{ sources: SourceRef[] }>(await fetch('/api/sources'));
     return data.sources;

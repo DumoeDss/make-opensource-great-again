@@ -65,3 +65,16 @@
 - **测试契约冻结点**（切片 2/3 restyle 也须守）：全部 `data-testid`、gate 文案 `Gate locked`/`Gate unlocked`（注意 `unlocked` 含子串 `locked`，断言用 contains）、Picker h1 `Select a session to review`、`matchPreview` 只显脱敏值。4 测试文件今天不断言样式类名，理论上重刷零改测试。
 - **fontSize 令牌会全局缩小正文**（base 0.875rem）= omnicross 密度，刻意为之；页标题 `xl`/`2xl` 仍走 TW 默认。
 - **ExportPreview/SubmitPanel 的裸 `<pre>` JSON 切片 1 只重新着色保留**——其降级进「高级」折叠是切片 2 的信息架构工作（成功标准「界面不再有裸 pre JSON 作主载体」由切片 2 兑现）。
+
+## 切片 2（ui-journey-shell）planner 决策记录（2026-07-09，已 propose + strict validate 通过）
+
+- **规格结构 = 新 capability `ui-journey-shell`(ADDED) + `review-ui`(MODIFIED 4 条)**：新外壳/步骤条/工作区/签署卡/出口卡/设置页进新 cap；`review-ui` 中呈现被重定义的 4 条（Gate banner→锁徽章+签署卡；Export preview→摘要+高级折叠；Render-and-gate 与 Cheap-tests 两条因文案提到 "gate banner" 也一并 MODIFY）行为场景保留、只改呈现措辞。MODIFIED 靠 header 精确匹配——**header 保持原样不改**（"Gate banner…" 标题不动，正文改为锁徽章+签署卡），body 承载真相。切片 3 若再改 review-ui 呈现须循此法。
+- **`ReviewView` 变旅程容器**（建议保留文件名减少 churn；若重命名 JourneyView 须改 App.tsx import）。持有 report/signed/busy/error/exported，派生当前步 + 锁徽章态，渲染 Stepper + ②DispositionWorkspace/③SigningCard/④ExitCards，取代 5-tab + GateBanner。
+- **`GateBanner` 溶解**（删文件）：逻辑拆进 Stepper 锁徽章 + SigningCard；`SIGNED_SUMMARY` 常量搬去 SigningCard/共享常量。GateBanner.test 替换为 SigningCard.test（+Stepper 测试），同契约新组件表达——这是 lead 批准的"结构性测试重组"。
+- **签署作废规则加严**：今 `run()` 仅在 gate 重锁时丢签名；新规则（设计 B3③）= 已签署后**任何**处置变更都作废签名 + 重锁④，用 **ConfirmDialog 守卫**（取消=不调 daemon；确认=作废+执行）。守卫**仅 `signed` 为真时拦截**——未签署时处置走原直调路径，保住现有 disposition 测试契约。
+- **dialog/confirm-dialog 移植（radix）真实消费点 = 上面的作废守卫**。加 `@radix-ui/react-dialog ^1.1.2`。`dialog.tsx` 剥 `wallpaper-solid`（留 bg-surface-0），`confirm-dialog.tsx` 已纯令牌。**不装 tailwindcss-animate**——`animate-*` 类留着惰性（弹窗功能正常），切片 3 视需要再定。
+- **主题三态化**：`lib/theme.ts` 从"仅跟随系统" 扩为 `light|dark|system` + localStorage 持久 + system 订阅 `prefers-color-scheme`（切片 1 行为成为 system 默认）。设置页开关驱动之。取代切片 1 的 follow-system bootstrap（Open Question 1 结论落地）。
+- **切片 2 零 daemon 改动**：设置页 = 主题 + daemon 健康(`/api/health` 经新增 client `getHealth()` + `useDaemonStatus`) + 只读 provider 列表(`/api/providers`)。**数据仓库路径展示 + preflight provider-key 状态推迟到切片 3**（其端点尚不存在）。出口① 仅"就绪态占位卡"，无 publish 调用。
+- **Badge span 修复**（切片 1 reviewer Minor）：Badge 从 `<div>` 改渲染 `<span>`（类型 HTMLSpanElement），使其在 Picker `<button>` 内合法嵌套；视觉不变。**切片 3 planner 注意**：Badge 现为 span。
+- **client `getHealth()` 加法安全**：测试 fakeClient/emptyClient 用 `as ApiClient` 强转，缺方法仍编译；顺手补进 stub。
+- **切片 3 接口衔接**：出口① 卡槽已由 ExitCards 建好（就绪态占位）；切片 3 只需把 3 步向导塞入该卡 + 加 daemon publish 路由/preflight/dataRepoPath。dialog/confirm-dialog 已可用。设置页已在，切片 3 往里加数据仓库路径只读行 + preflight 四态。
