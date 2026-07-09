@@ -24,7 +24,7 @@ A queue of more than one signed session SHALL land on a batch exit page presenti
 
 ### Requirement: Batch publish wizard over the batch routes
 
-The batch 出口① SHALL be a three-step wizard (预检 → PR 预览 → 提交) over the daemon batch publish routes. The preview SHALL show the batch branch, a per-record table (sessionId, message count, record path, bytes), the PR body in a styled preformatted block, and the compare link when derived. A batch pre-check refusal SHALL list every refused session with rule-aggregated counts only and offer a per-session jump back that switches the queue to that review, focuses the named rule's group in step ②, and flows through the signature-void guard. When `gh` is not ready the submit step SHALL fall back to the staged locations + exact command sequence + compare URL with per-command copy. A successful batch submit SHALL mark the journey completed.
+The batch 出口① SHALL be a three-step wizard (预检 → PR 预览 → 提交) over the daemon batch publish routes. The preview SHALL show the batch branch, a per-record table (sessionId, message count, record path, bytes), the PR body in a styled preformatted block, and the compare link when derived. A batch pre-check refusal SHALL list every refused session with rule-aggregated counts only and offer a per-session jump back that switches the queue to that review, focuses the named rule's group in step ②, and flows through the affirmation-void guard. When `gh` is not ready the submit step SHALL fall back to the staged locations + exact command sequence + compare URL with per-command copy. A successful batch submit SHALL mark the journey completed.
 
 #### Scenario: Batch preview enumerates the records
 
@@ -34,7 +34,7 @@ The batch 出口① SHALL be a three-step wizard (预检 → PR 预览 → 提�
 #### Scenario: Per-session refusal jumps back through the void guard
 
 - **WHEN** the batch pre-check refuses two sessions and the user jumps to one refused session's rule
-- **THEN** the queue switches to that review at step ② with the rule's group focused, and any disposition change there passes the signature-void confirm first
+- **THEN** the queue switches to that review at step ② with the rule's group focused, and any disposition change there passes the affirmation-void confirm first
 
 #### Scenario: gh-free batch fallback shows the manual path
 
@@ -44,7 +44,7 @@ The batch 出口① SHALL be a three-step wizard (预检 → PR 预览 → 提�
 #### Scenario: Batch publish completes the journey
 
 - **WHEN** the one-click batch submit succeeds
-- **THEN** the journey shows step ④ 已完成 with the receipt (branch, PR title, record count, compare URL when available)
+- **THEN** the journey shows the exit step 已完成 with the receipt (branch, PR title, record count, compare URL when available)
 
 ### Requirement: Batch direct submit with aggregate estimate and per-item consent
 

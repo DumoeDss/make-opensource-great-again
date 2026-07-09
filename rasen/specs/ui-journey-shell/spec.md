@@ -24,22 +24,22 @@ TBD - created by archiving change mosga-v03-ui-journey-shell. Update Purpose aft
 
 ### Requirement: Persistent four-step stepper with lock badge
 
-The 贡献 journey SHALL show a persistent stepper with four steps — ①选择会话, ②处置命中, ③签署确认, ④选择出口 — marking the current and completed steps, alongside a lock badge with four states: `还差 N 项解锁` when the gate is locked (N = pending blocking + pending non-text), `已解锁` when cleared but unsigned, `已签署` after signing, and `已完成` after an exit action succeeds. Steps ③ and ④ SHALL be gated: ③ is not enterable until the gate clears, and ④ is not enterable until the user has signed.
+The 贡献 journey SHALL show a persistent stepper with three steps — ①选择会话, ②处置命中, ③选择出口 — marking the current and completed steps, alongside a lock badge with three states: `还差 N 项解锁` when any session's gate is locked (N = the pending blocking + pending non-text count summed across the WHOLE queue), `已解锁` when every session is cleared, and `已完成` after an exit action succeeds. Steps ②③ SHALL render as navigation buttons; step ③ 选择出口 is gated — not enterable until every session's gate has cleared. Step ① 选择会话 stays non-interactive display (returning to the picker is the header's 换会话 link).
 
 #### Scenario: Lock badge counts down as items are dispositioned
 
-- **WHEN** blocking or non-text items remain pending
-- **THEN** the lock badge shows `还差 N 项解锁` with N equal to the pending blocking + non-text count, decreasing as items are dispositioned
+- **WHEN** blocking or non-text items remain pending in any session
+- **THEN** the lock badge shows `还差 N 项解锁` with N equal to the pending blocking + non-text count summed across the queue, decreasing as items are dispositioned
 
 #### Scenario: Badge transitions through cleared, signed, completed
 
-- **WHEN** the gate clears, then the user signs, then an exit action succeeds
-- **THEN** the badge shows `已解锁`, then `已签署`, then `已完成` in turn
+- **WHEN** every session's gate clears, then an exit action succeeds
+- **THEN** the badge shows `已解锁`, then `已完成` in turn
 
 #### Scenario: Later steps are gated
 
-- **WHEN** the gate is still locked
-- **THEN** step ③ is not enterable; and when cleared but unsigned, step ④ is not enterable
+- **WHEN** any session's gate is still locked
+- **THEN** step ③ 选择出口 is not enterable; once every session is cleared it becomes enterable
 
 ### Requirement: Merged disposition workspace
 
@@ -59,25 +59,6 @@ Step ② SHALL merge the former blocking / non-text / Layer-3 tabs into a single
 
 - **WHEN** the 归一化统计 group is viewed
 - **THEN** it shows category counts and a sampled spot-check only, contributes no disposition, and does not change the lock badge count
-
-### Requirement: Signing ceremony card and client-side signature lifecycle
-
-Step ③ SHALL be greyed and unenterable until the gate clears. Once cleared it SHALL surface a signing card with a serif (Georgia display) title 「数据捐赠确认」, a disposition summary (replace/delete/allow counts, non-text confirm counts, Layer-3 stats + spot-check conclusion), the existing signed-summary affirmation text, and a sign button that unlocks step ④. Signing SHALL be client-side state: it is lost on refresh, and changing any disposition after signing SHALL void the signature and re-lock step ④, guarded by a confirmation dialog. The server gate's 409 remains the final backstop.
-
-#### Scenario: Signing card appears only after the gate clears
-
-- **WHEN** any blocking or non-text item is still pending
-- **THEN** step ③ is not enterable and the signing card is not actionable; when all are dispositioned, the signing card becomes available
-
-#### Scenario: Signing unlocks the exit
-
-- **WHEN** the user affirms the summary and signs
-- **THEN** the lock badge shows `已签署` and step ④ becomes enterable
-
-#### Scenario: Editing a disposition after signing voids the signature
-
-- **WHEN** a signed user changes a disposition and confirms the void warning
-- **THEN** the signature is dropped, step ④ re-locks, and the daemon disposition call still runs
 
 ### Requirement: Dual exit cards with secondary export and receipt completion
 
@@ -140,4 +121,28 @@ No raw JSON SHALL be the primary information carrier in the review UI. The sanit
 
 - **WHEN** a submission receipt is shown
 - **THEN** key fields are summarized as a card and the raw receipt JSON is inside a collapsed Advanced fold
+
+### Requirement: One-time donation affirmation before the first exit action
+
+Donation confirmation SHALL be a single dialog, raised the FIRST time the user triggers any exit action (publish, direct submit, or export — single or batch). The dialog SHALL present an aggregate summary across ALL sessions in the queue (session count, total replace/delete/allow disposition counts, non-text keep/exclude totals, normalization totals) and the affirmation "命中项已全部处置 + 含图记录已逐条确认 + 抽检通过". Confirming SHALL mark the queue affirmed and immediately run the deferred exit action; cancelling SHALL discard the pending action and run nothing. Once affirmed, subsequent exit actions SHALL proceed without re-confirming. Changing ANY disposition after affirming SHALL raise a void-confirm dialog and, on confirm, void the affirmation and re-lock the exit. The server gate's 409 remains the final backstop.
+
+#### Scenario: First exit action raises the confirmation dialog
+
+- **WHEN** the queue is cleared and the user triggers an exit action for the first time
+- **THEN** the donation confirmation dialog appears with the whole-queue aggregate summary, and the exit action has not yet run
+
+#### Scenario: Confirming runs the deferred action; a second action skips the dialog
+
+- **WHEN** the user confirms the dialog, then later triggers another exit action
+- **THEN** the first action runs on confirm, and the later action proceeds directly without re-showing the dialog
+
+#### Scenario: Cancelling runs nothing
+
+- **WHEN** the user cancels the confirmation dialog
+- **THEN** the deferred exit action does not run and the queue stays unaffirmed
+
+#### Scenario: Editing after affirming voids the affirmation
+
+- **WHEN** the user changes a disposition after affirming and confirms the void warning
+- **THEN** the affirmation is voided, the exit re-locks, and the daemon disposition call still runs
 
