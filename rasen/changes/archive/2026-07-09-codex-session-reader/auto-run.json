@@ -55,13 +55,30 @@
         "reReview": "CLEAN — all findings RESOLVED, non-author confirmed (reviewer-codex-reader, warm delta re-review); review-report.md has '## Round 1 re-review'"
       }
     },
-    "ship": { "status": "in_progress" },
-    "archive": { "status": "pending" }
+    "ship": {
+      "status": "done",
+      "worker": {
+        "role": "shipper",
+        "agentName": "shipper-codex-reader"
+      },
+      "result": "ship commit 9820a56 + ship-log 42ac104, pushed origin/worktree-codex-session-reader; typecheck/build clean, vitest 245/245, strict valid"
+    },
+    "archive": {
+      "status": "done",
+      "worker": {
+        "role": "shipper",
+        "agentName": "shipper-codex-reader"
+      },
+      "result": "archive commit 5781dd8, spec delta applied (+2 added, ~1 modified), pushed"
+    }
   },
   "rounds": 1,
   "openFindings": [],
   "acceptedKnown": [
     "t6: scaffolding/text helper duplication across codexRollout.ts and codexAdapter.ts (deliberate util-cap split)",
     "trivial forward note: buildEnvelope fails closed (throws) on a sourceId missing from SOURCE_CLI_VALUES — future adapter onboarding must extend the enum (unreachable today; intended)"
+  ],
+  "processNotes": [
+    "review-report.md was initially written to the main checkout by the reviewer (stale cwd); LEAD moved it into the archived change dir post-archive"
   ]
 }
