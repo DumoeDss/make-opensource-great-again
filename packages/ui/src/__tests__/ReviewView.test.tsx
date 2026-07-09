@@ -35,6 +35,9 @@ function fakeClient(over: Partial<ApiClient> = {}): ApiClient {
     publishPlan: vi.fn(),
     publishStage: vi.fn(),
     publishSubmit: vi.fn(),
+    publishBatchPlan: vi.fn(),
+    publishBatchStage: vi.fn(),
+    publishBatchSubmit: vi.fn(),
     ...over,
   } as ApiClient;
 }
@@ -180,7 +183,7 @@ describe('ReviewView journey (single session — legacy contracts on a 1-item qu
     fireEvent.click(getByTestId('sign-submit'));
 
     expect(getByTestId('exit-cards')).toBeTruthy();
-    expect(queryByTestId('batch-exit-summary')).toBeNull();
+    expect(queryByTestId('batch-exit-cards')).toBeNull();
   });
 });
 
@@ -213,7 +216,7 @@ describe('ReviewView queue journey (N>1)', () => {
     expect((getByTestId('goto-step-4') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('opens the batch exit summary only once every item is signed', () => {
+  it('opens the batch exit cards only once every item is signed', () => {
     const items = many(makeReport([clearedFinding()]), makeReport([clearedFinding()]));
     const { getByTestId } = render(<ReviewView client={fakeClient()} items={items} />);
 
@@ -222,10 +225,119 @@ describe('ReviewView queue journey (N>1)', () => {
 
     expect(getByTestId('lock-badge').textContent).toContain('已签署');
     expect((getByTestId('goto-step-4') as HTMLButtonElement).disabled).toBe(false);
-    // ④ auto-entered → the N>1 transitional summary with placeholder cards.
-    expect(getByTestId('batch-exit-summary')).toBeTruthy();
-    expect(getByTestId('exit-placeholder-one')).toBeTruthy();
-    expect(getByTestId('exit-placeholder-two')).toBeTruthy();
+    // ④ auto-entered → the N>1 batch exit cards (both real exits).
+    expect(getByTestId('batch-exit-cards')).toBeTruthy();
+    expect(getByTestId('batch-exit-one')).toBeTruthy();
+    expect(getByTestId('batch-exit-two')).toBeTruthy();
+  });
+
+  it('a batch wizard per-session refusal jumps to that signed session at ② and edits stay void-guarded', async () => {
+    const setDisposition = vi.fn(async () => {
+      const r = makeReport([makeFinding({ id: 'fx', disposition: 'delete' })]);
+      return { report: r, gate: r.gate };
+    });
+    const client = fakeClient({
+      setDisposition,
+      getPreflight: vi.fn(async () => ({
+        dataRepoConfigured: true,
+        gitAvailable: true,
+        ghAvailable: true,
+        ghAuthenticated: true,
+        repoClean: true,
+      })),
+      publishBatchPlan: vi.fn(async () => ({
+        ok: false as const,
+        error: 'refused',
+        code: 'precheck_refused',
+        blockingBySession: [
+          { reviewId: 'r1', sessionId: 'sess-test', blockingByRule: [{ ruleId: 'aws-access-token', count: 1 }] },
+        ],
+      })),
+    });
+    const items = many(makeReport([clearedFinding()]), makeReport([clearedFinding()]));
+    const { getByTestId, findByTestId } = render(<ReviewView client={client} items={items} />);
+
+    signCurrent(getByTestId); // item 1 → item 2
+    signCurrent(getByTestId); // item 2 → all signed, at ④, current = item 2
+
+    // Open the batch wizard → its pre-check refuses and names session r1.
+    await waitFor(() => expect((getByTestId('batch-exit-one-cta') as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(getByTestId('batch-exit-one-cta'));
+    const jump = await findByTestId('jump-to-session-r1-aws-access-token');
+    fireEvent.click(jump);
+
+    // Jumped to session 1's step ② (current switched from item 2 to item 1).
+    expect(getByTestId('queue-bar').textContent).toContain('会话 1/2');
+    expect(getByTestId('disposition-workspace')).toBeTruthy();
+
+    // Session 1 is signed → editing a disposition must go through the void confirm,
+    // NOT straight to the daemon (the signature-void guard survives the jump).
+    fireEvent.click(getByTestId('disp-fx-delete'));
+    expect(screen.getByTestId('dialog-confirm')).toBeTruthy();
+    expect(setDisposition).not.toHaveBeenCalled();
+  });
+
+  it('a successful batch publish marks the journey 已完成', async () => {
+    const client = fakeClient({
+      getPreflight: vi.fn(async () => ({
+        dataRepoConfigured: true,
+        gitAvailable: true,
+        ghAvailable: true,
+        ghAuthenticated: true,
+        repoClean: true,
+      })),
+      publishBatchPlan: vi.fn(async () => ({
+        ok: true as const,
+        plan: {
+          branch: 'contrib/USER_1/batch-abcd1234',
+          targetBranch: 'main',
+          prTitle: 'Add 2 sanitized sessions (<USER_1>)',
+          prBody: '## Sanitized sessions contribution (batch)',
+          commitMessage: 'Add 2 sanitized sessions',
+          recordCount: 2,
+          ghAvailable: true,
+          stagedFiles: ['a.jsonl', 'a.provenance.json', 'b.jsonl', 'b.provenance.json'],
+          commands: ['git checkout -b contrib/USER_1/batch-abcd1234'],
+          engine: {},
+          compareUrl: null,
+          totalRecordBytes: 42,
+          records: [
+            { sessionId: 's1', recordPath: 'a.jsonl', provenancePath: 'a.provenance.json', recordBytes: 21, contentHash: 'a'.repeat(64), messages: 2 },
+            { sessionId: 's2', recordPath: 'b.jsonl', provenancePath: 'b.provenance.json', recordBytes: 21, contentHash: 'b'.repeat(64), messages: 3 },
+          ],
+        },
+      })),
+      publishBatchSubmit: vi.fn(async () => ({
+        ok: true as const,
+        result: {
+          opened: true as const,
+          branch: 'contrib/USER_1/batch-abcd1234',
+          receipt: {
+            branch: 'contrib/USER_1/batch-abcd1234',
+            targetBranch: 'main',
+            prTitle: 'Add 2 sanitized sessions (<USER_1>)',
+            compareUrl: null,
+            submittedAt: '2026-07-10T00:00:00.000Z',
+            recordCount: 2,
+          },
+        },
+      })),
+    });
+    const items = many(makeReport([clearedFinding()]), makeReport([clearedFinding()]));
+    const { getByTestId, findByTestId } = render(<ReviewView client={client} items={items} />);
+
+    signCurrent(getByTestId);
+    signCurrent(getByTestId);
+
+    await waitFor(() => expect((getByTestId('batch-exit-one-cta') as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(getByTestId('batch-exit-one-cta'));
+    await findByTestId('batch-wizard-step-preview');
+    fireEvent.click(getByTestId('batch-wizard-to-submit'));
+    fireEvent.click(await findByTestId('batch-wizard-submit-btn'));
+
+    await findByTestId('batch-published-badge');
+    expect(client.publishBatchSubmit).toHaveBeenCalledWith(['r1', 'r2']);
+    await waitFor(() => expect(getByTestId('lock-badge').textContent).toContain('已完成'));
   });
 
   it('editing one signed item voids only that item, re-locking the exit', async () => {

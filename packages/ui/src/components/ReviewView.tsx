@@ -12,7 +12,7 @@ import type {
   SanitizedSession,
 } from '../api/types';
 import { blockingFindings } from '../lib/findings';
-import { BatchExitSummary } from './journey/BatchExitSummary';
+import { BatchExitCards } from './journey/BatchExitCards';
 import { DispositionWorkspace } from './journey/DispositionWorkspace';
 import { ExitCards } from './journey/ExitCards';
 import { QueueBar } from './journey/QueueBar';
@@ -44,7 +44,7 @@ interface ItemState {
  * signing item k auto-advances to the next unsigned session. Step ④ becomes
  * enterable only when EVERY session is signed — at which point N=1 renders the
  * existing `ExitCards` (byte-identical to the pre-queue journey) and N>1 renders the
- * transitional `BatchExitSummary`.
+ * batch exits (`BatchExitCards`).
  *
  * Signing is client-side state: once a session is signed, ANY disposition change to
  * it is guarded by a `ConfirmDialog` that voids that session's signature and
@@ -181,6 +181,16 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
     setActiveStep(2);
   };
 
+  // The BATCH wizard's per-session refusal jumps to that session's step ②: switch
+  // the current item (reset semantics), then focus the named rule's group.
+  const onJumpToSession = (reviewId: string, ruleId: string): void => {
+    const idx = states.findIndex((s) => s.reviewId === reviewId);
+    if (idx === -1) return;
+    selectItem(idx);
+    setFocusRuleId(ruleId);
+    setActiveStep(2);
+  };
+
   const onExport = async (): Promise<void> => {
     setBusy(true);
     setError(null);
@@ -299,7 +309,17 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
         {currentStep === 3 && <SigningCard report={report} onSign={onSign} />}
         {currentStep === 4 &&
           (isMulti ? (
-            <BatchExitSummary client={client} items={items} />
+            <BatchExitCards
+              client={client}
+              items={states.map((s, i) => ({
+                reviewId: s.reviewId,
+                sessionId: s.report.sessionId,
+                title: items[i].ref.title ?? s.report.sessionId,
+              }))}
+              onPublished={() => setCompleted(true)}
+              onSubmittedAll={() => setCompleted(true)}
+              onJumpToSession={onJumpToSession}
+            />
           ) : (
             <ExitCards
               client={client}
