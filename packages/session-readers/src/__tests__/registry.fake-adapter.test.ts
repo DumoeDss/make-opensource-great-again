@@ -29,9 +29,9 @@ const fakeCodexAdapter: CliSourceAdapter = {
 };
 
 describe('registry accommodates a second adapter', () => {
-  it('registers ONLY claude-code by default', () => {
+  it('registers the built-in adapters by default', () => {
     const ids = listAdapters().map((a) => a.id);
-    expect(ids).toEqual(['claude-code']);
+    expect(ids).toEqual(['claude-code', 'codex']);
   });
 
   it('enumerates a fake second adapter after registration, no interface change', () => {

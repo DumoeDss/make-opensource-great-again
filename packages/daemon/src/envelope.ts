@@ -4,6 +4,7 @@
  * (`sanitized:false`, ruleset version null — the sanitizer stamps them at
  * export), and copy identity from the session ref.
  */
+import { SourceCliSchema } from '@mosga/contracts';
 import type { CliSessionRef, ParsedMessage, SanitizedSession } from '@mosga/contracts';
 
 /** Tool version stamped into `meta.toolVersion`; the daemon package version. */
@@ -22,7 +23,10 @@ export function buildEnvelope(
     meta: {
       // Provisional; the pseudonym mapper fills the real alias at export.
       contributorAlias: '<CONTRIBUTOR>',
-      sourceCli: 'claude-code',
+      // Provenance comes from the originating adapter (its source id is exactly a
+      // SOURCE_CLI value). `parse` fails closed on an unrecognized source rather
+      // than mislabeling the transcript.
+      sourceCli: SourceCliSchema.parse(ref.sourceId),
       toolVersion: TOOL_VERSION,
       sanitizationRulesetVersion: null,
       exportedAt: options.exportedAt ?? new Date().toISOString(),

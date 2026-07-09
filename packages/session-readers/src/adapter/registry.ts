@@ -1,11 +1,12 @@
 /**
  * Adapter registry — the open/closed seam for pluggable CLI sources.
  *
- * Adding a CLI (Codex/Cursor, v1.x) = registering one adapter here; consumers
- * call `getAdapter(id)` / `listAdapters()` and never change. v0.1 registers
- * ONLY the Claude Code adapter.
+ * Adding a CLI (Cursor, …) = registering one adapter here; consumers call
+ * `getAdapter(id)` / `listAdapters()` and never change. Registers the Claude
+ * Code and Codex adapters.
  */
 import { claudeCodeAdapter } from './claudeCodeAdapter.js';
+import { codexAdapter } from './codexAdapter.js';
 import type { CliSourceAdapter } from './types.js';
 
 const adapters = new Map<string, CliSourceAdapter>();
@@ -26,3 +27,4 @@ export function listAdapters(): CliSourceAdapter[] {
 }
 
 registerAdapter(claudeCodeAdapter);
+registerAdapter(codexAdapter);
