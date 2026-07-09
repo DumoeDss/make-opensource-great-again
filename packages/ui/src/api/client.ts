@@ -5,13 +5,18 @@
 import type {
   ContributionConsent,
   CreateReviewResponse,
+  CustomProviderInput,
   Disposition,
   ExportResponse,
   HealthResponse,
+  KeyStatusMap,
   NonTextDisposition,
   NormalizationCategory,
   ProjectsResponse,
   ProviderTarget,
+  PublishBatchPlan,
+  PublishBatchStageResult,
+  PublishBatchSubmitResult,
   PublishError,
   PublishPlan,
   PublishPreflight,
@@ -50,6 +55,20 @@ export interface ApiClient {
   getGate(reviewId: string): Promise<SanitizationReport['gate']>;
   exportReview(reviewId: string): Promise<{ ok: true; data: ExportResponse } | { ok: false; gate: SanitizationReport['gate'] }>;
   listProviders(): Promise<ProviderTarget[]>;
+  /** List only the user-added custom providers (the editable subset). */
+  listCustomProviders(): Promise<ProviderTarget[]>;
+  /** Create a custom provider (key-free); rejects on id conflict / validation error. */
+  createCustomProvider(input: CustomProviderInput): Promise<ProviderTarget>;
+  /** Update a custom provider's fields (id is immutable). */
+  updateCustomProvider(id: string, fields: Omit<CustomProviderInput, 'id'>): Promise<ProviderTarget>;
+  /** Delete a custom provider. */
+  deleteCustomProvider(id: string): Promise<void>;
+  /** Per-provider key status (`configured` boolean only — never key bytes). */
+  getKeyStatus(): Promise<KeyStatusMap>;
+  /** Set a provider's API key (write-only; the value is never read back). */
+  setProviderKey(providerId: string, apiKey: string): Promise<void>;
+  /** Clear a provider's API key. */
+  clearProviderKey(providerId: string): Promise<void>;
   estimateSubmit(reviewId: string, providerId: string, model: string, replayMode: ReplayMode): Promise<SubmitEstimate>;
   submit(
     reviewId: string,
@@ -59,6 +78,10 @@ export interface ApiClient {
   publishPlan(reviewId: string): Promise<PublishResult<{ plan: PublishPlan }>>;
   publishStage(reviewId: string): Promise<PublishResult<{ result: PublishStageResult }>>;
   publishSubmit(reviewId: string): Promise<PublishResult<{ result: PublishSubmitResult }>>;
+  /** Batch 出口① over `/api/publish/batch/*` — N reviews as one branch/commit/PR. */
+  publishBatchPlan(reviewIds: string[]): Promise<PublishResult<{ plan: PublishBatchPlan }>>;
+  publishBatchStage(reviewIds: string[]): Promise<PublishResult<{ result: PublishBatchStageResult }>>;
+  publishBatchSubmit(reviewIds: string[]): Promise<PublishResult<{ result: PublishBatchSubmitResult }>>;
 }
 
 async function json<T>(res: Response): Promise<T> {
@@ -72,6 +95,14 @@ async function json<T>(res: Response): Promise<T> {
 function post(url: string, body?: unknown): Promise<Response> {
   return fetch(url, {
     method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+function send(method: 'PUT' | 'DELETE', url: string, body?: unknown): Promise<Response> {
+  return fetch(url, {
+    method,
     headers: { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -142,6 +173,37 @@ export const apiClient: ApiClient = {
     const data = await json<{ providers: ProviderTarget[] }>(await fetch('/api/providers'));
     return data.providers;
   },
+  async listCustomProviders() {
+    const data = await json<{ providers: ProviderTarget[] }>(await fetch('/api/custom-providers'));
+    return data.providers;
+  },
+  async createCustomProvider(input) {
+    const data = await json<{ provider: ProviderTarget }>(await post('/api/custom-providers', input));
+    return data.provider;
+  },
+  async updateCustomProvider(id, fields) {
+    const data = await json<{ provider: ProviderTarget }>(
+      await send('PUT', `/api/custom-providers/${encodeURIComponent(id)}`, fields),
+    );
+    return data.provider;
+  },
+  async deleteCustomProvider(id) {
+    await json<{ deleted: boolean }>(await send('DELETE', `/api/custom-providers/${encodeURIComponent(id)}`));
+  },
+  async getKeyStatus() {
+    const data = await json<{ status: KeyStatusMap }>(await fetch('/api/provider-keys'));
+    return data.status;
+  },
+  async setProviderKey(providerId, apiKey) {
+    await json<{ configured: boolean }>(
+      await send('PUT', `/api/provider-keys/${encodeURIComponent(providerId)}`, { apiKey }),
+    );
+  },
+  async clearProviderKey(providerId) {
+    await json<{ configured: boolean }>(
+      await send('DELETE', `/api/provider-keys/${encodeURIComponent(providerId)}`),
+    );
+  },
   async estimateSubmit(reviewId, providerId, model, replayMode) {
     return json<SubmitEstimate>(
       await post(`/api/reviews/${encodeURIComponent(reviewId)}/submit/estimate`, {
@@ -177,6 +239,21 @@ export const apiClient: ApiClient = {
     const res = await post(`/api/reviews/${encodeURIComponent(reviewId)}/publish/submit`);
     if (!res.ok) return { ok: false, ...((await res.json().catch(() => ({}))) as PublishError) };
     return { ok: true, result: (await res.json()) as PublishSubmitResult };
+  },
+  async publishBatchPlan(reviewIds) {
+    const res = await post('/api/publish/batch/plan', { reviewIds });
+    if (!res.ok) return { ok: false, ...((await res.json().catch(() => ({}))) as PublishError) };
+    return { ok: true, plan: (await res.json()) as PublishBatchPlan };
+  },
+  async publishBatchStage(reviewIds) {
+    const res = await post('/api/publish/batch/stage', { reviewIds });
+    if (!res.ok) return { ok: false, ...((await res.json().catch(() => ({}))) as PublishError) };
+    return { ok: true, result: (await res.json()) as PublishBatchStageResult };
+  },
+  async publishBatchSubmit(reviewIds) {
+    const res = await post('/api/publish/batch/submit', { reviewIds });
+    if (!res.ok) return { ok: false, ...((await res.json().catch(() => ({}))) as PublishError) };
+    return { ok: true, result: (await res.json()) as PublishBatchSubmitResult };
   },
 };
 

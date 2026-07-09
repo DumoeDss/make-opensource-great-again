@@ -45,6 +45,24 @@ export interface ProviderTarget {
   models: string[];
 }
 
+/** The four request formats a custom provider may use. */
+export type ApiFormat = 'openai' | 'openai-response' | 'anthropic' | 'gemini';
+
+/** The list of `apiFormat` options for the custom-provider form dropdown. */
+export const API_FORMATS: ApiFormat[] = ['openai', 'openai-response', 'anthropic', 'gemini'];
+
+/** A custom-provider create/edit payload (key-free). `id` is client-chosen on create. */
+export interface CustomProviderInput {
+  id: string;
+  name: string;
+  apiFormat: ApiFormat;
+  apiBaseUrl: string;
+  models: string[];
+}
+
+/** Per-provider key status — `configured` boolean only, never any key bytes. */
+export type KeyStatusMap = Record<string, { configured: boolean }>;
+
 /** The submit cost-estimate response (mirrors the daemon shape + content hash). */
 export interface SubmitEstimate {
   replayMode: ReplayMode;
@@ -171,6 +189,17 @@ export interface PublishError {
   blockingByRule?: Array<{ ruleId: string; count: number }>;
   /** `branch_exists` detail: the existing deterministic branch name. */
   branch?: string;
+  /**
+   * Batch `precheck_refused` detail: per-session rule-aggregated counts (never raw
+   * values). The UI groups the refusal by session and offers a jump back to ②.
+   */
+  blockingBySession?: Array<{
+    reviewId: string;
+    sessionId: string;
+    blockingByRule: Array<{ ruleId: string; count: number }>;
+  }>;
+  /** Batch gate/404 attribution: the offending review (`GATE_LOCKED` / unknown). */
+  reviewId?: string;
 }
 
 export interface PublishStageResult {
@@ -189,5 +218,59 @@ export interface PublishSubmitResult {
     prTitle: string;
     compareUrl: string | null;
     submittedAt: string;
+  };
+}
+
+// ---- 批量 出口① publish (batch plan / stage / submit) ---------------------
+
+/** One record's UI-safe metadata in a batch plan (bytes excluded — count + hash stand in). */
+export interface PublishBatchRecord {
+  sessionId: string;
+  recordPath: string;
+  provenancePath: string;
+  recordBytes: number;
+  contentHash: string;
+  messages: number;
+}
+
+/**
+ * The UI-safe batch plan — mirrors the daemon's `uiSafeBatchPlan` exactly: N
+ * records under one branch/commit/PR, per-record metadata + totals, record bytes
+ * EXCLUDED. `provenance` is per-record (in the sidecars), so unlike the single plan
+ * there is no top-level provenance field.
+ */
+export interface PublishBatchPlan {
+  branch: string;
+  targetBranch: string;
+  prTitle: string;
+  prBody: string;
+  commitMessage: string;
+  recordCount: number;
+  ghAvailable: boolean;
+  stagedFiles: string[];
+  commands: string[];
+  engine: Record<string, unknown>;
+  compareUrl: string | null;
+  totalRecordBytes: number;
+  records: PublishBatchRecord[];
+}
+
+export interface PublishBatchStageResult {
+  staged: true;
+  branch: string;
+  stagedFiles: string[];
+  recordCount: number;
+}
+
+export interface PublishBatchSubmitResult {
+  opened: true;
+  branch: string;
+  receipt: {
+    branch: string;
+    targetBranch: string;
+    prTitle: string;
+    compareUrl: string | null;
+    submittedAt: string;
+    recordCount: number;
   };
 }

@@ -28,15 +28,23 @@ export interface KeyResolutionOptions {
    * client-supplied path — same trust model as the daemon's `customRulesPath`.
    */
   keyConfigPath?: string;
+  /**
+   * Lowest-precedence lookup into the user-scope, HTTP-writable key store
+   * (decrypted server-side by the store). Consulted ONLY after env and the
+   * trusted startup `keyConfigPath` — so explicit operator config always
+   * outranks a UI-written key. Returns the plaintext key or `undefined`.
+   */
+  storeKeyLookup?: (providerId: string) => string | undefined;
 }
 
 /**
- * Resolve the contributor's own provider key SERVER-SIDE from environment or a
- * trusted local config file. Precedence: per-provider env
- * (`MOSGA_PROVIDER_KEY_<ID>`) → generic env (`MOSGA_PROVIDER_KEY`) → key config
- * file. Returns `undefined` when nothing is configured (caller raises
- * `KeyNotConfiguredError`). The key is used ONLY as the outbound authorization
- * header and never enters any serialized output.
+ * Resolve the contributor's own provider key SERVER-SIDE. Precedence:
+ * per-provider env (`MOSGA_PROVIDER_KEY_<ID>`) → generic env
+ * (`MOSGA_PROVIDER_KEY`) → trusted startup key config file → user-scope key
+ * store (the HTTP-written store, decrypted; lowest precedence). Returns
+ * `undefined` when nothing is configured (caller raises `KeyNotConfiguredError`).
+ * The key is used ONLY as the outbound authorization header and never enters any
+ * serialized output.
  */
 export function resolveProviderKey(
   providerId: string,
@@ -57,6 +65,14 @@ export function resolveProviderKey(
       // An unreadable/invalid key config is treated as "no key" — never surfaced
       // to a client, and never a partial-credential leak.
     }
+  }
+
+  // LAST tier: the HTTP-written user-scope store (a missing/unreadable store, or
+  // an entry that fails to decrypt with a lost/rotated master key, is "no key";
+  // the store swallows its own read/decrypt errors and never throws here).
+  if (options.storeKeyLookup) {
+    const stored = options.storeKeyLookup(providerId);
+    if (stored && stored.length > 0) return stored;
   }
   return undefined;
 }

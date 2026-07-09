@@ -10,6 +10,8 @@ afterEach(cleanup);
 const client = {
   getHealth: vi.fn(async () => ({ name: 'mosga-daemon', version: '0.1.0' })),
   listProviders: vi.fn(async () => []),
+  listCustomProviders: vi.fn(async () => []),
+  getKeyStatus: vi.fn(async () => ({})),
   getPreflight: vi.fn(async () => ({
     dataRepoConfigured: false,
     gitAvailable: true,

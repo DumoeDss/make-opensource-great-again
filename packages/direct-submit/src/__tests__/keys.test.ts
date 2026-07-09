@@ -23,6 +23,25 @@ describe('key resolution (server-side only)', () => {
     expect(resolveProviderKey('deepseek', { env: {} })).toBeUndefined();
   });
 
+  it('consults the store LAST — env and startup config both outrank it', () => {
+    const store = (id: string): string | undefined => (id === 'deepseek' ? 'from-store' : undefined);
+    // Store is used only when nothing higher is configured.
+    expect(resolveProviderKey('deepseek', { env: {}, storeKeyLookup: store })).toBe('from-store');
+    // Per-provider env outranks the store.
+    expect(
+      resolveProviderKey('deepseek', {
+        env: { MOSGA_PROVIDER_KEY_DEEPSEEK: FAKE_PROVIDER_KEY },
+        storeKeyLookup: store,
+      }),
+    ).toBe(FAKE_PROVIDER_KEY);
+    // Generic env outranks the store.
+    expect(
+      resolveProviderKey('deepseek', { env: { MOSGA_PROVIDER_KEY: 'generic' }, storeKeyLookup: store }),
+    ).toBe('generic');
+    // No store hit → undefined.
+    expect(resolveProviderKey('unknown', { env: {}, storeKeyLookup: store })).toBeUndefined();
+  });
+
   it('a missing key is a configuration error, not a leak', async () => {
     const { transport, requests } = recordingTransport();
     const session = cleanSession();

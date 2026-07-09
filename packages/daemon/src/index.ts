@@ -9,6 +9,14 @@ export {
   DEFAULT_PORT,
 } from './server.js';
 export { ReviewStore, type ReviewState } from './reviews.js';
+export {
+  createProviderStore,
+  createInMemoryProviderStore,
+  ProviderConflictError,
+  type ProviderStore,
+  type ProviderStoreOptions,
+  type KeyStatus,
+} from './providerStore.js';
 export { buildEnvelope, TOOL_VERSION, SCHEMA_VERSION } from './envelope.js';
 export {
   annotateProject,

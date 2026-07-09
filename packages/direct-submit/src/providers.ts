@@ -26,6 +26,28 @@ export interface UserTarget {
   models: string[];
 }
 
+/**
+ * The open-model source-vendor allowlist: exactly the `@omnicross/contracts`
+ * presets the product targets — DeepSeek, z.ai, 智谱 GLM, Kimi (Moonshot),
+ * MiniMax, 小米 MiMo (two official endpoints). Every non-open-source and relay
+ * preset is deliberately excluded. Enforced in BOTH `listProviders` and
+ * `resolveProvider` so a preset outside it is neither shown nor submittable
+ * (UI-hiding alone would let `/api/reviews/:id/submit` still accept it).
+ */
+export const ALLOWED_PRESET_IDS: readonly string[] = [
+  'deepseek',
+  'zhipu',
+  'zhipu-bigmodel',
+  'kimi',
+  'minimax',
+  'xiaomi-mimo',
+  'xiaomi-mimo-anthropic',
+];
+
+function isAllowlistedPreset(id: string): boolean {
+  return ALLOWED_PRESET_IDS.includes(id);
+}
+
 function fromPreset(p: PresetProviderTemplate): ProviderTarget {
   return {
     id: p.id,
@@ -39,22 +61,31 @@ function fromPreset(p: PresetProviderTemplate): ProviderTarget {
 }
 
 /**
- * The key-free provider list: open-model presets plus user-added targets. Never
- * includes key material (presets carry none; user targets are id/name/format
- * only — the key is resolved separately, server-side, at send time).
+ * The key-free provider list: allowlisted open-model presets plus user-added
+ * targets. Never includes key material (presets carry none; user targets are
+ * id/name/format only — the key is resolved separately, server-side, at send
+ * time). Presets outside `ALLOWED_PRESET_IDS` are filtered out here.
  */
 export function listProviders(userTargets: UserTarget[] = []): ProviderTarget[] {
-  const presets = getAllProviderPresets().map(fromPreset);
+  const presets = getAllProviderPresets()
+    .filter((p) => isAllowlistedPreset(p.id))
+    .map(fromPreset);
   return [...presets, ...userTargets];
 }
 
-/** Resolve a target by id from presets first, then user-added targets. */
+/**
+ * Resolve a target by id from allowlisted presets first, then user-added
+ * targets. A preset outside the allowlist resolves to nothing (so it can never
+ * be submitted to, matching `listProviders`); user targets always resolve.
+ */
 export function resolveProvider(
   id: string,
   userTargets: UserTarget[] = [],
 ): ProviderTarget | undefined {
-  const preset = getPresetById(id);
-  if (preset) return fromPreset(preset);
+  if (isAllowlistedPreset(id)) {
+    const preset = getPresetById(id);
+    if (preset) return fromPreset(preset);
+  }
   return userTargets.find((t) => t.id === id);
 }
 

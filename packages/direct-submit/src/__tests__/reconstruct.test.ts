@@ -119,19 +119,21 @@ describe('format routing (task 4.2)', () => {
 
   it('Anthropic-format preset gets the native request at the messages endpoint', async () => {
     const session = toolSession();
-    const target = resolveProvider('anthropic')!;
+    // minimax is the allowlisted anthropic-format source vendor (the `anthropic`
+    // preset is deliberately off the open-model allowlist now).
+    const target = resolveProvider('minimax')!;
     const { transport, requests } = recordingTransport();
     await submit({
       session,
       target,
-      model: 'claude-opus-4-7',
-      consent: makeConsent(session, { targetProviderId: 'anthropic', targetModel: 'claude-opus-4-7' }),
+      model: 'minimax-m2',
+      consent: makeConsent(session, { targetProviderId: 'minimax', targetModel: 'minimax-m2' }),
       ruleset: RULESET,
       apiKey: 'sk-fake',
       transport,
       versions: VERSIONS,
     });
-    expect(requests[0].url).toBe('https://api.anthropic.com/v1/messages');
+    expect(requests[0].url).toBe(target.apiBaseUrl);
     const body = JSON.parse(requests[0].body) as { max_tokens: number; messages: unknown[] };
     // Native Anthropic shape carries max_tokens and structured content arrays.
     expect(typeof body.max_tokens).toBe('number');

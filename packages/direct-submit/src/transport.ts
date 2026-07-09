@@ -25,9 +25,25 @@ export interface OutboundResult {
  */
 export type Transport = (req: OutboundRequest) => Promise<OutboundResult>;
 
-/** Parse usage from either an Anthropic or an OpenAI completion response body. */
+/**
+ * Parse usage from a completion response body. Recognizes Anthropic
+ * (`input_tokens`), OpenAI chat + Responses (`prompt_tokens` / `input_tokens`),
+ * and Gemini (`usageMetadata.promptTokenCount` / `candidatesTokenCount`).
+ */
 function parseUsage(json: unknown): SubmissionUsage | null {
   if (!json || typeof json !== 'object') return null;
+
+  // Gemini reports token counts under `usageMetadata`, not `usage`.
+  const meta = (json as { usageMetadata?: unknown }).usageMetadata;
+  if (meta && typeof meta === 'object') {
+    const m = meta as Record<string, unknown>;
+    const input = m.promptTokenCount;
+    const output = m.candidatesTokenCount;
+    if (typeof input === 'number' && typeof output === 'number') {
+      return { inputTokens: input, outputTokens: output };
+    }
+  }
+
   const usage = (json as { usage?: unknown }).usage;
   if (!usage || typeof usage !== 'object') return null;
   const u = usage as Record<string, unknown>;

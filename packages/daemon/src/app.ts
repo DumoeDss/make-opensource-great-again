@@ -10,6 +10,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import os from 'node:os';
 
 import {
+  ALLOWED_PRESET_IDS,
   ConsentError,
   KeyNotConfiguredError,
   NotStampedError,
@@ -46,6 +47,11 @@ import { z } from 'zod';
 
 import { buildEnvelope } from './envelope.js';
 import { createRouter, readJsonBody, sendJson, type HandlerResult, type Route } from './http.js';
+import {
+  createProviderStore,
+  ProviderConflictError,
+  type ProviderStore,
+} from './providerStore.js';
 import { createPublishRoutes, validateDataRepoPath } from './publish.js';
 import { ReviewStore } from './reviews.js';
 import { isUiPath, resolveUiDist, serveUi, uiNotBuiltMessage } from './staticUi.js';
@@ -96,6 +102,18 @@ export interface AppOptions {
   /** User-added provider targets exposed alongside the presets (key-free). */
   userTargets?: UserTarget[];
   /**
+   * The user-scope persistence store for custom providers + encrypted API keys.
+   * Defaults to a file-backed store under `~/.mosga/`; tests inject an in-memory
+   * fake (`createInMemoryProviderStore`) so no disk or real key is touched.
+   */
+  providerStore?: ProviderStore;
+  /** Path to the user-scope custom-providers file. Default `~/.mosga/user-providers.json`. */
+  userProvidersPath?: string;
+  /** Path to the encrypted user-scope key store. Default `~/.mosga/provider-keys.json`. */
+  providerKeysPath?: string;
+  /** Path to the master keyfile encrypting the key store. Default `~/.mosga/master.key`. */
+  masterKeyFilePath?: string;
+  /**
    * Path to the operator's LOCAL data-repo clone that 出口① publishes into. Same
    * trust model as `providerKeyConfigPath`: server-side at startup ONLY, NEVER
    * writable via any HTTP route, and never echoed back over HTTP (preflight
@@ -142,10 +160,49 @@ const SubmitBody = z.object({
   consent: ContributionConsentSchema,
 });
 
+/** The four supported request formats for a custom provider. */
+const ApiFormatSchema = z.enum(['openai', 'openai-response', 'anthropic', 'gemini']);
+
+/** An `http(s)` URL — the only shape a custom provider's base URL may take. */
+const HttpUrlSchema = z
+  .string()
+  .url()
+  .refine((u) => /^https?:$/.test(new URL(u).protocol), { message: 'apiBaseUrl must be an http(s) URL' });
+
+/** Custom-provider create body (id supplied by the client). NEVER carries a key. */
+const CustomProviderBody = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  apiFormat: ApiFormatSchema,
+  apiBaseUrl: HttpUrlSchema,
+  models: z.array(z.string()),
+});
+
+/** Custom-provider update body (id comes from the route param). */
+const CustomProviderUpdateBody = CustomProviderBody.omit({ id: true });
+
+/** Provider-key set body — write-only; the value is never echoed back. */
+const ProviderKeyBody = z.object({ apiKey: z.string().min(1) });
+
 export function createApp(options: AppOptions = {}): App {
   const homeDir = options.homeDir ?? os.homedir();
   const getUiDist = options.getUiDist ?? resolveUiDist;
   const store = new ReviewStore(options.maxReviews);
+
+  // User-scope persistence for custom providers + encrypted keys. Injectable for
+  // tests (an in-memory fake); otherwise file-backed under `~/.mosga/`.
+  const providerStore =
+    options.providerStore ??
+    createProviderStore({
+      homeDir,
+      userProvidersPath: options.userProvidersPath,
+      keysPath: options.providerKeysPath,
+      masterKeyFilePath: options.masterKeyFilePath,
+    });
+
+  // The provider targets to expose: injected `userTargets` first, then persisted
+  // custom providers (injected wins on id collision — keeps tests deterministic).
+  const mergedTargets = (): UserTarget[] => providerStore.mergedTargets(options.userTargets ?? []);
 
   // Custom rules load ONCE at startup from a trusted, server-configured path —
   // never from a request body (that would be an arbitrary file read on the API).
@@ -396,9 +453,103 @@ export function createApp(options: AppOptions = {}): App {
     {
       method: 'GET',
       pattern: '/api/providers',
-      // Key-free provider list: open-model presets + user-added targets. Never
-      // returns key material (presets carry none; keys are resolved server-side).
-      handler: () => ({ status: 200, json: { providers: listProviders(options.userTargets ?? []) } }),
+      // Key-free provider list: allowlisted presets + custom/user-added targets.
+      // Never returns key material (presets carry none; keys are resolved server-side).
+      handler: () => ({ status: 200, json: { providers: listProviders(mergedTargets()) } }),
+    },
+
+    // ---- custom provider CRUD (provider-management) -----------------------
+    {
+      method: 'GET',
+      pattern: '/api/custom-providers',
+      // The persisted custom providers only (key-free by construction). The
+      // allowlisted presets come from `/api/providers`; this route is the
+      // editable subset the settings page manages.
+      handler: () => ({ status: 200, json: { providers: providerStore.listCustomProviders() } }),
+    },
+
+    {
+      method: 'POST',
+      pattern: '/api/custom-providers',
+      handler: ({ body }) => {
+        const parsed = CustomProviderBody.safeParse(body);
+        if (!parsed.success) return badRequest(parsed.error.message);
+        // Reject an id that collides with an allowlisted preset: otherwise
+        // `listProviders` would emit two rows with the same id and
+        // `resolveProvider` (allowlist checked first) would return the preset,
+        // silently shadowing the custom target — plus duplicate React keys/testids
+        // in the settings UI. Same 409/PROVIDER_EXISTS shape as a custom-id clash.
+        if (ALLOWED_PRESET_IDS.includes(parsed.data.id)) {
+          return {
+            status: 409,
+            json: {
+              error: `a built-in preset provider with id "${parsed.data.id}" already exists`,
+              code: 'PROVIDER_EXISTS',
+            },
+          };
+        }
+        try {
+          const created = providerStore.createCustomProvider(parsed.data);
+          return { status: 201, json: { provider: created } };
+        } catch (err) {
+          if (err instanceof ProviderConflictError) {
+            return { status: 409, json: { error: err.message, code: 'PROVIDER_EXISTS' } };
+          }
+          throw err;
+        }
+      },
+    },
+
+    {
+      method: 'PUT',
+      pattern: '/api/custom-providers/:id',
+      handler: ({ params, body }) => {
+        const parsed = CustomProviderUpdateBody.safeParse(body);
+        if (!parsed.success) return badRequest(parsed.error.message);
+        const updated = providerStore.updateCustomProvider(params.id, parsed.data);
+        if (!updated) return notFound(`unknown custom provider "${params.id}"`);
+        return { status: 200, json: { provider: updated } };
+      },
+    },
+
+    {
+      method: 'DELETE',
+      pattern: '/api/custom-providers/:id',
+      handler: ({ params }) => {
+        const removed = providerStore.deleteCustomProvider(params.id);
+        if (!removed) return notFound(`unknown custom provider "${params.id}"`);
+        return { status: 200, json: { deleted: true } };
+      },
+    },
+
+    // ---- write-only provider API-key management (provider-management) ------
+    {
+      method: 'GET',
+      pattern: '/api/provider-keys',
+      // Status ONLY — per-provider `configured: boolean`. NEVER key bytes.
+      handler: () => ({ status: 200, json: { status: providerStore.keyStatus() } }),
+    },
+
+    {
+      method: 'PUT',
+      pattern: '/api/provider-keys/:providerId',
+      handler: ({ params, body }) => {
+        const parsed = ProviderKeyBody.safeParse(body);
+        if (!parsed.success) return badRequest(parsed.error.message);
+        // Encrypted at rest by the store; the response NEVER echoes the key.
+        providerStore.setKey(params.providerId, parsed.data.apiKey);
+        return { status: 200, json: { configured: true } };
+      },
+    },
+
+    {
+      method: 'DELETE',
+      pattern: '/api/provider-keys/:providerId',
+      handler: ({ params }) => {
+        providerStore.deleteKey(params.providerId);
+        // Idempotent: deleting an absent key still ends configured:false.
+        return { status: 200, json: { configured: false } };
+      },
     },
 
     {
@@ -412,7 +563,7 @@ export function createApp(options: AppOptions = {}): App {
         const { providerId, replayMode } = parsed.data;
         // Validate the provider when named, so the estimate never implies a price
         // for a target that cannot be submitted to.
-        if (providerId && !resolveProvider(providerId, options.userTargets ?? [])) {
+        if (providerId && !resolveProvider(providerId, mergedTargets())) {
           return notFound(`unknown provider "${providerId}"`);
         }
         // Price by the selected provider, falling back to the default and
@@ -458,12 +609,14 @@ export function createApp(options: AppOptions = {}): App {
         // `consent.replayMode` is authoritative (required by the schema); the
         // top-level `SubmitBody.replayMode` is not used.
         const { providerId, model, consent } = parsed.data;
-        const target = resolveProvider(providerId, options.userTargets ?? []);
+        const target = resolveProvider(providerId, mergedTargets());
         if (!target) return notFound(`unknown provider "${providerId}"`);
 
         // Key is read server-side; a missing key is a config error, not a leak.
+        // The user-scope store is the LAST precedence tier (env/startup win).
         const apiKey = resolveProviderKey(providerId, {
           keyConfigPath: options.providerKeyConfigPath,
+          storeKeyLookup: (id) => providerStore.getKey(id),
         });
 
         try {

@@ -187,6 +187,157 @@ describe('出口② daemon routes', () => {
     });
   });
 
+  it('end-to-end via the store: set key → submit → key-free receipt + enc: envelope on disk', async () => {
+    const sent: OutboundRequest[] = [];
+    const submitTransport = async (req: OutboundRequest) => {
+      sent.push(req);
+      return { status: 200, usage: { inputTokens: 5, outputTokens: 2 } };
+    };
+    const storeHome = makeTempDir('mosga-store-e2e-');
+    const keysPath = path.join(storeHome, 'provider-keys.json');
+    try {
+      await withServer(
+        { homeDir: home, now: NOW, submitTransport, providerKeysPath: keysPath, masterKeyFilePath: path.join(storeHome, 'master.key') },
+        async (base) => {
+          // 1) Set the key over HTTP (the store is the only key source here).
+          const put = await fetch(`${base}/api/provider-keys/deepseek`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ apiKey: FAKE_KEY }),
+          });
+          expect(put.status).toBe(200);
+
+          // 2) Create + unlock a review, then estimate for the authoritative hash.
+          const r = await createReview(base, 'projX');
+          await unlock(base, r);
+          const est = (await (
+            await fetch(`${base}/api/reviews/${r.reviewId}/submit/estimate`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ providerId: 'deepseek', model: 'deepseek-v4-flash' }),
+            })
+          ).json()) as { contentHash: string; totalTokens: number };
+
+          // 3) Submit with valid double-consent — the store key satisfies it.
+          const res = await fetch(`${base}/api/reviews/${r.reviewId}/submit`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              providerId: 'deepseek',
+              model: 'deepseek-v4-flash',
+              consent: {
+                consentVersion: '0.2.0',
+                tosRiskAcknowledged: true,
+                fullRetentionAcknowledged: true,
+                targetProviderId: 'deepseek',
+                targetModel: 'deepseek-v4-flash',
+                replayMode: 'single-shot',
+                estimatedTokens: est.totalTokens,
+                contentHash: est.contentHash,
+                confirmedAt: NOW,
+              },
+            }),
+          });
+          expect(res.status).toBe(200);
+          const raw = await res.text();
+          expect(raw).not.toContain(FAKE_KEY); // receipt is key-free
+
+          // The outbound request carried the store key ONLY in the auth header.
+          expect(sent).toHaveLength(1);
+          expect(sent[0].headers.authorization).toBe(`Bearer ${FAKE_KEY}`);
+          expect(sent[0].body).not.toContain(FAKE_KEY);
+
+          // The store file holds an enc: envelope, never the raw key.
+          const onDisk = JSON.parse(fs.readFileSync(keysPath, 'utf-8')) as Record<string, string>;
+          expect(onDisk.deepseek.startsWith('enc:v1:')).toBe(true);
+          expect(onDisk.deepseek).not.toContain(FAKE_KEY);
+        },
+      );
+    } finally {
+      rm(storeHome);
+    }
+  });
+
+  it('an undecryptable store key (lost/rotated master key) degrades to KEY_NOT_CONFIGURED, not 500', async () => {
+    const sent: OutboundRequest[] = [];
+    const submitTransport = async (req: OutboundRequest) => {
+      sent.push(req);
+      return { status: 200, usage: null };
+    };
+    const storeHome = makeTempDir('mosga-store-rotate-');
+    const keysPath = path.join(storeHome, 'provider-keys.json');
+    try {
+      // 1) Store a key encrypted under master key A.
+      await withServer(
+        {
+          homeDir: home,
+          providerKeysPath: keysPath,
+          masterKeyFilePath: path.join(storeHome, 'master-a.key'),
+        },
+        async (base) => {
+          const put = await fetch(`${base}/api/provider-keys/deepseek`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ apiKey: FAKE_KEY }),
+          });
+          expect(put.status).toBe(200);
+        },
+      );
+      // On disk it's an enc: envelope, not the raw key.
+      const onDisk = JSON.parse(fs.readFileSync(keysPath, 'utf-8')) as Record<string, string>;
+      expect(onDisk.deepseek.startsWith('enc:v1:')).toBe(true);
+
+      // 2) Restart pointing at a DIFFERENT (absent → freshly generated) master key
+      //    file: the stored envelope can no longer be decrypted (GCM auth fails).
+      await withServer(
+        {
+          homeDir: home,
+          now: NOW,
+          submitTransport,
+          providerKeysPath: keysPath,
+          masterKeyFilePath: path.join(storeHome, 'master-b.key'),
+        },
+        async (base) => {
+          const r = await createReview(base, 'projX');
+          await unlock(base, r);
+          const est = (await (
+            await fetch(`${base}/api/reviews/${r.reviewId}/submit/estimate`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ providerId: 'deepseek', model: 'deepseek-v4-flash' }),
+            })
+          ).json()) as { contentHash: string };
+          const res = await fetch(`${base}/api/reviews/${r.reviewId}/submit`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              providerId: 'deepseek',
+              model: 'deepseek-v4-flash',
+              consent: {
+                consentVersion: '0.2.0',
+                tosRiskAcknowledged: true,
+                fullRetentionAcknowledged: true,
+                targetProviderId: 'deepseek',
+                targetModel: 'deepseek-v4-flash',
+                replayMode: 'single-shot',
+                estimatedTokens: 100,
+                contentHash: est.contentHash,
+                confirmedAt: NOW,
+              },
+            }),
+          });
+          // The undecryptable entry is treated as "no key" → a clean config error,
+          // not a 500 from a propagating decrypt throw. Nothing was sent.
+          expect(res.status).toBe(400);
+          expect(((await res.json()) as { code: string }).code).toBe('KEY_NOT_CONFIGURED');
+          expect(sent).toHaveLength(0);
+        },
+      );
+    } finally {
+      rm(storeHome);
+    }
+  });
+
   it('invalid consent (hash mismatch) is 422; valid consent returns a key-free receipt', async () => {
     const sent: OutboundRequest[] = [];
     const submitTransport = async (req: OutboundRequest) => {

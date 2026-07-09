@@ -30,6 +30,7 @@ export {
   listProviders,
   resolveProvider,
   isAnthropicFormat,
+  ALLOWED_PRESET_IDS,
   type ProviderTarget,
   type UserTarget,
 } from './providers.js';
