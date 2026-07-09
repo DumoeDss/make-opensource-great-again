@@ -30,8 +30,12 @@
       "worker": { "role": "fixer", "agentName": "fixer-spm" },
       "notes": "round 1 clean: 3 Minor + Trivial-1 fixed, re-reviewed RESOLVED by reviewer-spm (non-author); Trivial-2 = commit hygiene, handled at ship via selective staging; 330 passed / 1 skipped (skip = POSIX-only 0600 test on Windows)"
     },
-    "ship": { "status": "in_progress" },
-    "archive": { "status": "pending" }
+    "ship": {
+      "status": "done",
+      "worker": { "role": "shipper", "agentName": "shipper-spm" },
+      "notes": "e2358b2 (feat, 37 files +3387/-79) + 33ff49b (ship log), pushed to origin/main; selective commit verified hunk-by-hunk against concurrent session's mosga-v04-batch-exits-ui work (excluded, intact); tests 343 passed / 1 skipped"
+    },
+    "archive": { "status": "in_progress" }
   },
   "rounds": 0,
   "openFindings": [],
