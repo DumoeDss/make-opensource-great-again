@@ -19,7 +19,9 @@
       "pipeline": "small-feature",
       "prereqs": ["mosga-v04-session-picker"],
       "mode": "serial",
-      "status": "pending"
+      "status": "done",
+      "ship": "099c9da",
+      "archivedPath": "rasen/changes/archive/2026-07-09-mosga-v04-batch-publish-core"
     },
     {
       "id": "mosga-v04-batch-exits-ui",
@@ -29,7 +31,7 @@
       "status": "pending"
     }
   ],
-  "frontier": ["mosga-v04-batch-publish-core"],
+  "frontier": ["mosga-v04-batch-exits-ui"],
   "portfolioComplete": false,
   "userDecisions": {
     "scope": "session picker redesign (elftia-style tree + card grid + multi-select) + queue journey + batch exits (2026-07-09)",
