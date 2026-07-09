@@ -10,7 +10,9 @@
       "pipeline": "small-feature",
       "prereqs": [],
       "mode": "serial",
-      "status": "pending"
+      "status": "done",
+      "ship": "63f02ce",
+      "archivedPath": "rasen/changes/archive/2026-07-09-mosga-v04-session-picker"
     },
     {
       "id": "mosga-v04-batch-publish-core",
@@ -27,7 +29,7 @@
       "status": "pending"
     }
   ],
-  "frontier": ["mosga-v04-session-picker"],
+  "frontier": ["mosga-v04-batch-publish-core"],
   "portfolioComplete": false,
   "userDecisions": {
     "scope": "session picker redesign (elftia-style tree + card grid + multi-select) + queue journey + batch exits (2026-07-09)",
@@ -36,5 +38,8 @@
     "designAuthority": "rasen/office-hours/session-picker-batch-journey.md is AUTHORITATIVE for all three slices"
   },
   "notes": "Strict serial chain. CLI is the rasen fork (node <rasen.js path>). Do NOT touch rasen/changes/codex-session-reader/ (someone else's in-flight change). Do NOT modify archived artifacts.",
-  "humanFollowUps": []
+  "humanFollowUps": [
+    "切片1 accepted-known：M2 已签项切回无显式已签提示；M3 title-hover 与 BatchExitSummary 下载/409 分支缺断言（可随切片3补）；M4 N=1 touched 后 restart 弹确认（有意）；M5 过渡态 .jsonl 文件名（切片3替换）",
+    "GUI 冒烟测试仍未做（v03 遗留 + 本轮新选择页/队列旅程）"
+  ]
 }
