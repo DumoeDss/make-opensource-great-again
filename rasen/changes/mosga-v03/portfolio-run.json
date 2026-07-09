@@ -68,5 +68,11 @@
     "Optional fast-follows from slice-3 review (accepted-known): M2 stage_failed 500 echoes raw git stderr in log field; M1 focusRuleId repeat-jump no-op; slice-2 F2 export-409-branch test gap",
     "Design doc Open Questions still open: HF org/dataset naming (needed before exit-1 is usable for real), dataset license, receipt persistence (~/.mosga/receipts.jsonl) for a future History page",
     "Tauri desktop shell not rebuilt this run — rebuild apps/desktop when convenient to bundle the new UI (daemon serves /ui from packages/ui/dist, so a plain rebuild of ui + shell restart suffices)"
-  ]
+  ],
+  "sessionHandoff": {
+    "path": "handoff/lead-1.md",
+    "pct": 0.288,
+    "afterStage": "portfolio-complete (+readme docs)",
+    "at": "2026-07-09T07:32:06.355Z"
+  }
 }
