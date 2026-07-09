@@ -1,8 +1,8 @@
 import { useState } from 'react';
 
 import { apiClient, type ApiClient } from './api/client';
-import type { CreateReviewResponse } from './api/types';
-import { Picker } from './components/Picker';
+import type { QueueItem } from './api/types';
+import { SessionPicker } from './components/picker/SessionPicker';
 import { ReviewView } from './components/ReviewView';
 import { AppShell } from './components/shell/AppShell';
 
@@ -12,22 +12,16 @@ interface AppProps {
 }
 
 export function App({ client = apiClient }: AppProps): JSX.Element {
-  const [review, setReview] = useState<CreateReviewResponse | null>(null);
+  const [queue, setQueue] = useState<QueueItem[] | null>(null);
 
-  // The 贡献 destination keeps the Picker↔journey toggle: Picker when no review
-  // exists (step ①), the journey container once a review is created.
+  // The 贡献 destination keeps the picker↔journey toggle: the SessionPicker when no
+  // queue exists (step ①), the queue-aware journey container once a queue is created.
   return (
     <AppShell client={client}>
-      {review ? (
-        <ReviewView
-          client={client}
-          reviewId={review.reviewId}
-          initialReport={review.report}
-          warnings={review.rulesetWarnings}
-          onRestart={() => setReview(null)}
-        />
+      {queue ? (
+        <ReviewView client={client} items={queue} onRestart={() => setQueue(null)} />
       ) : (
-        <Picker client={client} onReviewCreated={setReview} />
+        <SessionPicker client={client} onQueueCreated={setQueue} />
       )}
     </AppShell>
   );

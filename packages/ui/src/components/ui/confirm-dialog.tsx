@@ -25,6 +25,8 @@ export interface ConfirmDialogProps {
   cancelLabel?: string;
   variant?: 'destructive' | 'default';
   onConfirm: () => void;
+  /** Root testid; the ok/cancel buttons derive `${testid}-ok-btn`/`-cancel-btn`. */
+  testid?: string;
 }
 
 export function ConfirmDialog({
@@ -36,6 +38,7 @@ export function ConfirmDialog({
   cancelLabel = '取消',
   variant = 'destructive',
   onConfirm,
+  testid = 'dialog-confirm',
 }: ConfirmDialogProps) {
   const handleConfirm = () => {
     onOpenChange(false);
@@ -44,7 +47,7 @@ export function ConfirmDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm" hideCloseButton data-testid="dialog-confirm">
+      <DialogContent className="max-w-sm" hideCloseButton data-testid={testid}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {description ? (
@@ -54,14 +57,14 @@ export function ConfirmDialog({
         <DialogFooter className="gap-2 sm:gap-0">
           <button
             onClick={() => onOpenChange(false)}
-            data-testid="dialog-confirm-cancel-btn"
+            data-testid={`${testid}-cancel-btn`}
             className="px-4 py-2 text-sm rounded-lg border border-border text-foreground hover:bg-surface-1 transition-colors"
           >
             {cancelLabel}
           </button>
           <button
             onClick={handleConfirm}
-            data-testid="dialog-confirm-ok-btn"
+            data-testid={`${testid}-ok-btn`}
             data-variant={variant}
             className={cn(
               'px-4 py-2 text-sm rounded-lg transition-colors',

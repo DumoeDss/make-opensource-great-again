@@ -1,0 +1,40 @@
+{
+  "pipeline": "auto-decompose",
+  "classification": "portfolio",
+  "tier": "A",
+  "decompose": "taken",
+  "decomposeRationale": "Approved design (rasen/office-hours/session-picker-batch-journey.md) defines 3 slices with an explicit dependency chain: picker redesign + queue journey (pure frontend) -> batch publish core (publisher multi-record plan/stage/submit + daemon batch routes, pure backend) -> batch exits UI (pure frontend consuming the new routes). Combined diff would span an IA rewrite + new publisher contracts + new daemon routes — too large to review as one.",
+  "children": [
+    {
+      "id": "mosga-v04-session-picker",
+      "pipeline": "small-feature",
+      "prereqs": [],
+      "mode": "serial",
+      "status": "pending"
+    },
+    {
+      "id": "mosga-v04-batch-publish-core",
+      "pipeline": "small-feature",
+      "prereqs": ["mosga-v04-session-picker"],
+      "mode": "serial",
+      "status": "pending"
+    },
+    {
+      "id": "mosga-v04-batch-exits-ui",
+      "pipeline": "small-feature",
+      "prereqs": ["mosga-v04-batch-publish-core"],
+      "mode": "serial",
+      "status": "pending"
+    }
+  ],
+  "frontier": ["mosga-v04-session-picker"],
+  "portfolioComplete": false,
+  "userDecisions": {
+    "scope": "session picker redesign (elftia-style tree + card grid + multi-select) + queue journey + batch exits (2026-07-09)",
+    "batchSemantics": "queue + batch exit: ②③ per-session (signing is per-session by design), ④ unified batch exits — exit-1 merges N records into one branch/PR, exit-2 batch-submits per-record with aggregate estimate (user choice, 2026-07-09)",
+    "process": "rasen 流程: design doc -> propose -> implement -> review -> ship/archive (user choice, 2026-07-09)",
+    "designAuthority": "rasen/office-hours/session-picker-batch-journey.md is AUTHORITATIVE for all three slices"
+  },
+  "notes": "Strict serial chain. CLI is the rasen fork (node <rasen.js path>). Do NOT touch rasen/changes/codex-session-reader/ (someone else's in-flight change). Do NOT modify archived artifacts.",
+  "humanFollowUps": []
+}

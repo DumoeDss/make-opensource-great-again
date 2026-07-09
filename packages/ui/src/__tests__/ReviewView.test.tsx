@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ApiClient } from '../api/client';
+import type { QueueItem, SanitizationReport, SessionRef } from '../api/types';
 import { ReviewView } from '../components/ReviewView';
 import { makeFinding, makeNonText, makeReport } from './_fixtures';
 
@@ -38,16 +39,41 @@ function fakeClient(over: Partial<ApiClient> = {}): ApiClient {
   } as ApiClient;
 }
 
-describe('ReviewView journey', () => {
+function makeRef(over: Partial<SessionRef> = {}): SessionRef {
+  return {
+    sourceId: 'src',
+    projectKey: 'proj',
+    id: 'sess',
+    path: '/p/sess.jsonl',
+    title: 'Session',
+    cwd: null,
+    updatedAt: 0,
+    sizeBytes: 0,
+    ...over,
+  };
+}
+
+/** A single-review queue with a fixed reviewId of `r1` (matches the legacy assertions). */
+function one(report: SanitizationReport): QueueItem[] {
+  return [{ review: { reviewId: 'r1', report, rulesetWarnings: [] }, ref: makeRef() }];
+}
+
+/** An N-item queue; reviewIds are r1..rN, refs get index-based titles. */
+function many(...reports: SanitizationReport[]): QueueItem[] {
+  return reports.map((report, i) => ({
+    review: { reviewId: `r${i + 1}`, report, rulesetWarnings: [] },
+    ref: makeRef({ id: `sess${i + 1}`, title: `Session ${i + 1}` }),
+  }));
+}
+
+describe('ReviewView journey (single session — legacy contracts on a 1-item queue)', () => {
   it('dispositioning a finding calls the client and updates the lock badge', async () => {
     const initial = makeReport([makeFinding({ id: 'fx', disposition: 'pending' })]);
     const next = makeReport([makeFinding({ id: 'fx', disposition: 'replace' })]);
     const setDisposition = vi.fn(async () => ({ report: next, gate: next.gate }));
     const client = fakeClient({ setDisposition });
 
-    const { getByTestId } = render(
-      <ReviewView client={client} reviewId="r1" initialReport={initial} warnings={[]} />,
-    );
+    const { getByTestId } = render(<ReviewView client={client} items={one(initial)} />);
 
     // Locked to start: 1 remaining, exit step (④) not enterable.
     expect(getByTestId('lock-badge').textContent).toContain('还差 1');
@@ -64,9 +90,7 @@ describe('ReviewView journey', () => {
     const batch = vi.fn(async () => ({ report: initial, gate: initial.gate }));
     const client = fakeClient({ batch });
 
-    const { getByTestId } = render(
-      <ReviewView client={client} reviewId="r1" initialReport={initial} warnings={[]} />,
-    );
+    const { getByTestId } = render(<ReviewView client={client} items={one(initial)} />);
     fireEvent.click(getByTestId('batch-rule-aws-access-token'));
     await waitFor(() =>
       expect(batch).toHaveBeenCalledWith('r1', 'rule', 'aws-access-token', 'replace'),
@@ -79,9 +103,7 @@ describe('ReviewView journey', () => {
     const setNonText = vi.fn(async () => ({ report: next, gate: next.gate }));
     const client = fakeClient({ setNonText });
 
-    const { getByTestId } = render(
-      <ReviewView client={client} reviewId="r1" initialReport={initial} warnings={[]} />,
-    );
+    const { getByTestId } = render(<ReviewView client={client} items={one(initial)} />);
     expect(getByTestId('lock-badge').textContent).toContain('还差 1');
 
     // The 图像/附件 group holds the non-text queue.
@@ -98,9 +120,7 @@ describe('ReviewView journey', () => {
     const setDisposition = vi.fn(async () => ({ report: afterEdit, gate: afterEdit.gate }));
     const client = fakeClient({ setDisposition });
 
-    const { getByTestId } = render(
-      <ReviewView client={client} reviewId="r1" initialReport={cleared} warnings={[]} />,
-    );
+    const { getByTestId } = render(<ReviewView client={client} items={one(cleared)} />);
 
     // Cleared but unsigned → ④ still gated.
     expect(getByTestId('lock-badge').textContent).toContain('已解锁');
@@ -135,9 +155,7 @@ describe('ReviewView journey', () => {
     const setDisposition = vi.fn(async () => ({ report: cleared, gate: cleared.gate }));
     const client = fakeClient({ setDisposition });
 
-    const { getByTestId } = render(
-      <ReviewView client={client} reviewId="r1" initialReport={cleared} warnings={[]} />,
-    );
+    const { getByTestId } = render(<ReviewView client={client} items={one(cleared)} />);
     fireEvent.click(getByTestId('goto-step-3'));
     fireEvent.click(getByTestId('sign-checkbox'));
     fireEvent.click(getByTestId('sign-submit'));
@@ -148,5 +166,103 @@ describe('ReviewView journey', () => {
     expect(setDisposition).not.toHaveBeenCalled();
     // Still signed — cancel is a no-op.
     expect(getByTestId('lock-badge').textContent).toContain('已签署');
+  });
+
+  it('N=1 has no queue bar and renders ExitCards at step ④', () => {
+    const cleared = makeReport([makeFinding({ id: 'fx', disposition: 'replace' })]);
+    const { getByTestId, queryByTestId } = render(
+      <ReviewView client={fakeClient()} items={one(cleared)} />,
+    );
+    expect(queryByTestId('queue-bar')).toBeNull();
+
+    fireEvent.click(getByTestId('goto-step-3'));
+    fireEvent.click(getByTestId('sign-checkbox'));
+    fireEvent.click(getByTestId('sign-submit'));
+
+    expect(getByTestId('exit-cards')).toBeTruthy();
+    expect(queryByTestId('batch-exit-summary')).toBeNull();
+  });
+});
+
+describe('ReviewView queue journey (N>1)', () => {
+  const clearedFinding = () => makeFinding({ id: 'fx', disposition: 'replace' });
+
+  function signCurrent(getByTestId: (id: string) => HTMLElement): void {
+    fireEvent.click(getByTestId('goto-step-3'));
+    fireEvent.click(getByTestId('sign-checkbox'));
+    fireEvent.click(getByTestId('sign-submit'));
+  }
+
+  it('renders a queue bar and advances to the next unsigned item on sign', () => {
+    const items = many(makeReport([clearedFinding()]), makeReport([clearedFinding()]));
+    const { getByTestId } = render(<ReviewView client={fakeClient()} items={items} />);
+
+    // Two-item queue → the bar shows 会话 1/2 and a chip per item.
+    expect(getByTestId('queue-bar').textContent).toContain('会话 1/2');
+    expect(getByTestId('queue-item-1')).toBeTruthy();
+    expect(getByTestId('queue-item-2')).toBeTruthy();
+
+    // ④ is gated until EVERY item is signed.
+    expect((getByTestId('goto-step-4') as HTMLButtonElement).disabled).toBe(true);
+
+    // Sign item 1 → auto-advance to item 2, and item 1's chip flips to 已签署.
+    signCurrent(getByTestId);
+    expect(getByTestId('queue-bar').textContent).toContain('会话 2/2');
+    expect(getByTestId('queue-item-1').getAttribute('data-state')).toBe('已签署');
+    // Still not all signed → ④ still gated.
+    expect((getByTestId('goto-step-4') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('opens the batch exit summary only once every item is signed', () => {
+    const items = many(makeReport([clearedFinding()]), makeReport([clearedFinding()]));
+    const { getByTestId } = render(<ReviewView client={fakeClient()} items={items} />);
+
+    signCurrent(getByTestId); // item 1 → advances to item 2
+    signCurrent(getByTestId); // item 2 → all signed
+
+    expect(getByTestId('lock-badge').textContent).toContain('已签署');
+    expect((getByTestId('goto-step-4') as HTMLButtonElement).disabled).toBe(false);
+    // ④ auto-entered → the N>1 transitional summary with placeholder cards.
+    expect(getByTestId('batch-exit-summary')).toBeTruthy();
+    expect(getByTestId('exit-placeholder-one')).toBeTruthy();
+    expect(getByTestId('exit-placeholder-two')).toBeTruthy();
+  });
+
+  it('editing one signed item voids only that item, re-locking the exit', async () => {
+    const afterEdit = makeReport([makeFinding({ id: 'fx', disposition: 'delete' })]);
+    const setDisposition = vi.fn(async () => ({ report: afterEdit, gate: afterEdit.gate }));
+    const client = fakeClient({ setDisposition });
+    const items = many(makeReport([clearedFinding()]), makeReport([clearedFinding()]));
+
+    const { getByTestId } = render(<ReviewView client={client} items={items} />);
+    signCurrent(getByTestId); // item 1 signed → on item 2
+    signCurrent(getByTestId); // item 2 signed → all signed, at ④
+
+    // Jump back to item 1 and edit its disposition → void-confirm intercepts.
+    fireEvent.click(getByTestId('queue-item-1'));
+    fireEvent.click(getByTestId('goto-step-2'));
+    fireEvent.click(getByTestId('disp-fx-delete'));
+    fireEvent.click(screen.getByTestId('dialog-confirm-ok-btn'));
+    expect(setDisposition).toHaveBeenCalledWith('r1', 'fx', 'delete');
+
+    // Only item 1's signature is voided → ④ re-locked; item 2 stays signed.
+    await waitFor(() => expect((getByTestId('goto-step-4') as HTMLButtonElement).disabled).toBe(true));
+    expect(getByTestId('queue-item-2').getAttribute('data-state')).toBe('已签署');
+  });
+
+  it('leaving the queue with progress prompts a restart confirm', () => {
+    const onRestart = vi.fn();
+    const items = many(makeReport([clearedFinding()]), makeReport([clearedFinding()]));
+    const { getByTestId } = render(
+      <ReviewView client={fakeClient()} items={items} onRestart={onRestart} />,
+    );
+
+    signCurrent(getByTestId); // makes the queue "touched"/signed
+    fireEvent.click(getByTestId('restart'));
+    expect(screen.getByTestId('restart-confirm')).toBeTruthy();
+    expect(onRestart).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('restart-confirm-ok-btn'));
+    expect(onRestart).toHaveBeenCalledTimes(1);
   });
 });

@@ -107,6 +107,17 @@ export interface CreateReviewResponse {
   rulesetWarnings: RulesetWarning[];
 }
 
+/**
+ * One entry in the review queue: the created review plus the `SessionRef` it came
+ * from. The ref rides along because `CreateReviewResponse` carries no title/time —
+ * the queue bar needs them to label each session. A length-1 queue is a single
+ * review, behaviourally identical to the pre-queue single-session journey.
+ */
+export interface QueueItem {
+  review: CreateReviewResponse;
+  ref: SessionRef;
+}
+
 export interface ReportResponse {
   report: SanitizationReport;
   gate: SanitizationReport['gate'];
