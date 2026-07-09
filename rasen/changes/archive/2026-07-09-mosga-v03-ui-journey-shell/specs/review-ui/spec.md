@@ -18,12 +18,12 @@ The findings view SHALL surface EVERY blocking finding, including the engine fin
 
 The UI SHALL keep the review LOCKED until `gate.unlocked` is true (every blocking finding and every non-text item dispositioned), presenting the locked/cleared state as a lock badge on the persistent stepper. Once cleared it SHALL present a signing confirmation — a ceremony card whose affirmation expresses "命中项已全部处置 + 含图记录已逐条确认 + 抽检通过" — that the user affirms to unlock the exit step. The exit/export controls SHALL be disabled while locked and while unsigned.
 
-#### Scenario: Locked until all blocking + non-text handled
+#### Scenario: Banner locked until all blocking + non-text handled
 
 - **WHEN** any blocking finding or non-text item is still `pending`
 - **THEN** the lock badge shows a locked/remaining state and the exit step is not enterable
 
-#### Scenario: Signed summary gates the exit
+#### Scenario: Signed summary gates export
 
 - **WHEN** all items are dispositioned and the user affirms the signing confirmation
 - **THEN** the exit step becomes enterable and the export/submit controls become enabled
@@ -32,7 +32,7 @@ The UI SHALL keep the review LOCKED until `gate.unlocked` is true (every blockin
 
 Once the gate is unlocked and the sanitized export is produced, the UI SHALL present a human-readable summary of the stamped `SanitizedSession` (`meta.sanitized:true`, ruleset version stamped) as the primary content, with the raw JSON available only inside an expandable 「高级」 fold — never as the primary information carrier.
 
-#### Scenario: Sanitized envelope summarized after unlock
+#### Scenario: Sanitized envelope previewed after unlock
 
 - **WHEN** the user exports after unlocking
 - **THEN** the UI shows a human-readable summary of the stamped `SanitizedSession`, with the raw JSON inside a collapsed Advanced fold
@@ -41,7 +41,7 @@ Once the gate is unlocked and the sanitized export is produced, the UI SHALL pre
 
 The package SHALL include component-level tests for the key interactions (disposition control, batch action, locked/signing state, non-text confirm) where they are cheap to write. A heavy end-to-end browser suite is out of scope. Structural reorganization of the tests to follow the journey components is expected; the behavioural contracts SHALL be preserved.
 
-#### Scenario: Locked state renders from a fixture report
+#### Scenario: Gate-locked state renders from a fixture report
 
 - **WHEN** a component test renders the journey (or its signing/lock component) with a report that has a pending blocking finding
 - **THEN** the locked state is shown and the exit/export control is disabled

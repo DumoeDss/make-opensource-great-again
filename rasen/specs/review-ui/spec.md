@@ -3,9 +3,7 @@
 ## Purpose
 
 Defines the `@mosga/ui` package: the React 18 + Vite + Tailwind human-review interface driving the `@mosga/daemon` API — session picker, findings table, batch dispositions, non-text confirmation, and the gate-enforced export flow.
-
 ## Requirements
-
 ### Requirement: Whitelist project and session picker
 
 The `@mosga/ui` package SHALL provide a React 18 + Vite + Tailwind interface whose entry flow is a picker: choose a source, then a project, then a session. The project list SHALL default to `recommended` (public-git-remote) projects, with an explicit "show all projects" control to reveal the rest, surfacing the design doc's whitelist defense to the user.
@@ -50,7 +48,7 @@ The findings view SHALL surface EVERY blocking finding, including the engine fin
 #### Scenario: Compile-error finding is shown and blocks the gate
 
 - **WHEN** a review contains a blocking `ruleset-compile-error` finding
-- **THEN** the UI shows it as a blocking item requiring acknowledgement, and the gate banner stays locked until it is dispositioned
+- **THEN** the UI shows it as a blocking item requiring acknowledgement, and the gate stays locked (shown by the lock badge) until it is dispositioned
 
 #### Scenario: Ruleset warnings are displayed
 
@@ -73,17 +71,17 @@ The UI SHALL list each non-text ⚠ item (from `nonTextItems`) individually, sho
 
 ### Requirement: Gate banner and signed confirmation summary
 
-The UI SHALL show a gate banner that stays LOCKED until `gate.unlocked` is true (every blocking finding and every non-text item dispositioned), and SHALL present a signed confirmation summary expressing "命中项已全部处置 + 含图记录已逐条确认 + 抽检通过" that the user affirms to unlock export. Export controls SHALL be disabled while locked.
+The UI SHALL keep the review LOCKED until `gate.unlocked` is true (every blocking finding and every non-text item dispositioned), presenting the locked/cleared state as a lock badge on the persistent stepper. Once cleared it SHALL present a signing confirmation — a ceremony card whose affirmation expresses "命中项已全部处置 + 含图记录已逐条确认 + 抽检通过" — that the user affirms to unlock the exit step. The exit/export controls SHALL be disabled while locked and while unsigned.
 
 #### Scenario: Banner locked until all blocking + non-text handled
 
 - **WHEN** any blocking finding or non-text item is still `pending`
-- **THEN** the gate banner shows locked and the export control is disabled
+- **THEN** the lock badge shows a locked/remaining state and the exit step is not enterable
 
 #### Scenario: Signed summary gates export
 
-- **WHEN** all items are dispositioned and the user affirms the signed confirmation summary
-- **THEN** the export control becomes enabled
+- **WHEN** all items are dispositioned and the user affirms the signing confirmation
+- **THEN** the exit step becomes enterable and the export/submit controls become enabled
 
 ### Requirement: Layer-3 statistics and sample-check view
 
@@ -96,18 +94,19 @@ The UI SHALL present Layer-3 normalization as a statistics view (`layerSummary.n
 
 ### Requirement: Export preview of the sanitized envelope
 
-Once the gate is unlocked and export is confirmed, the UI SHALL show a preview of the stamped sanitized `SanitizedSession` JSON returned by the daemon's export endpoint (`meta.sanitized:true`, ruleset version stamped).
+Once the gate is unlocked and the sanitized export is produced, the UI SHALL present a human-readable summary of the stamped `SanitizedSession` (`meta.sanitized:true`, ruleset version stamped) as the primary content, with the raw JSON available only inside an expandable 「高级」 fold — never as the primary information carrier.
 
 #### Scenario: Sanitized envelope previewed after unlock
 
 - **WHEN** the user exports after unlocking
-- **THEN** the UI displays the stamped `SanitizedSession` JSON from the daemon
+- **THEN** the UI shows a human-readable summary of the stamped `SanitizedSession`, with the raw JSON inside a collapsed Advanced fold
 
 ### Requirement: Cheap component-level UI tests
 
-The package SHALL include component-level tests for the key interactions (disposition control, batch action, gate-locked state, non-text confirm) where they are cheap to write. A heavy end-to-end browser suite is out of scope for v0.1.
+The package SHALL include component-level tests for the key interactions (disposition control, batch action, locked/signing state, non-text confirm) where they are cheap to write. A heavy end-to-end browser suite is out of scope. Structural reorganization of the tests to follow the journey components is expected; the behavioural contracts SHALL be preserved.
 
 #### Scenario: Gate-locked state renders from a fixture report
 
-- **WHEN** a component test renders the gate banner with a report that has a pending blocking finding
-- **THEN** the banner shows locked and the export control is disabled
+- **WHEN** a component test renders the journey (or its signing/lock component) with a report that has a pending blocking finding
+- **THEN** the locked state is shown and the exit/export control is disabled
+

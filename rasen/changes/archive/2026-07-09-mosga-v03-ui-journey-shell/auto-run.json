@@ -32,15 +32,23 @@
       "note": "F1 (spec-text contradiction) fixed inline by LEAD per reviewer recommended wording, strict re-validate passed; F2/F3/F4 accepted-known. 0 fix rounds needed."
     },
     "ship": {
-      "status": "in_progress",
+      "status": "done",
       "worker": {
         "role": "shipper",
         "agentName": "shipper-s1",
         "model": "sonnet"
-      }
+      },
+      "commits": [
+        "206f1a6"
+      ],
+      "note": "pushed; flaky pr.test.ts timeout under concurrency (isolated 7/7, full suite 194/194 at 20s timeout) — not a regression"
     },
     "archive": {
-      "status": "pending"
+      "status": "in_progress",
+      "worker": {
+        "role": "shipper",
+        "agentName": "shipper-s1"
+      }
     }
   },
   "rounds": 0,

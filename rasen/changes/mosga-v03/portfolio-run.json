@@ -22,7 +22,8 @@
         "mosga-v03-ui-design-system"
       ],
       "mode": "serial",
-      "status": "in_progress"
+      "status": "shipping-archived",
+      "ship": "206f1a6"
     },
     {
       "id": "mosga-v03-publish-exit-one",
@@ -31,11 +32,11 @@
         "mosga-v03-ui-journey-shell"
       ],
       "mode": "serial",
-      "status": "pending"
+      "status": "in_progress"
     }
   ],
   "frontier": [
-    "mosga-v03-ui-journey-shell"
+    "mosga-v03-publish-exit-one"
   ],
   "portfolioComplete": false,
   "planner": {
@@ -57,5 +58,8 @@
     "gates": "user pre-authorized continuous run — gates reported, not blocked on ('no gate，你来推进执行所有任务', 2026-07-09)",
     "designAuthority": "rasen/office-hours/frontend-ui-redesign.md is AUTHORITATIVE for all three slices"
   },
-  "notes": "Strict serial chain — all three slices touch packages/ui, no positive independence proof. CLI is rasen fork; root migrated openspec/ -> rasen/ this run (copy-only, openspec/ frozen read-only legacy). Workers must use node <rasen.js path> for CLI and write artifacts under rasen/changes/. Do NOT modify archived v01/v02 artifacts."
+  "notes": "Strict serial chain — all three slices touch packages/ui, no positive independence proof. CLI is rasen fork; root migrated openspec/ -> rasen/ this run (copy-only, openspec/ frozen read-only legacy). Workers must use node <rasen.js path> for CLI and write artifacts under rasen/changes/. Do NOT modify archived v01/v02 artifacts.",
+  "humanFollowUps": [
+    "publisher pr.test.ts git-subprocess test is timeout-flaky under concurrent vitest on Windows (isolated pass) — slice 3 async CommandRunner work should consider raising its testTimeout or serializing git tests"
+  ]
 }
