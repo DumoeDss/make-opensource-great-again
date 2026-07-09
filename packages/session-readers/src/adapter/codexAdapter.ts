@@ -232,6 +232,16 @@ export const codexAdapter: CliSourceAdapter = {
     return [...byKey.values()];
   },
 
+  countSessionsByProject(roots: string[]): Record<string, number> {
+    // One rollout scan (the same pass listProjects pays), grouped into counts.
+    const counts: Record<string, number> = {};
+    for (const { meta } of scanCodexRollouts(roots)) {
+      const key = normalizeCwd(meta.cwd) ?? UNKNOWN_PROJECT_KEY;
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  },
+
   listSessions(roots: string[], project: CliProjectRef): CliSessionRef[] {
     const out: CliSessionRef[] = [];
     for (const { path: rolloutPath, meta } of scanCodexRollouts(roots)) {

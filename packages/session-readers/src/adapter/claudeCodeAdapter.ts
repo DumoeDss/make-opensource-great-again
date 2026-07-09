@@ -114,6 +114,26 @@ export const claudeCodeAdapter: CliSourceAdapter = {
     return out;
   },
 
+  countSessionsByProject(roots: string[]): Record<string, number> {
+    // Counting is a readdir per project dir — deliberately NO stat/title reads
+    // (listSessions reads every transcript for a title; counts must stay cheap).
+    const counts: Record<string, number> = {};
+    for (const root of roots) {
+      let entries: fs.Dirent[];
+      try {
+        entries = fs.readdirSync(root, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const n = listSessionFilesInProject(path.join(root, entry.name)).length;
+        if (n > 0) counts[entry.name] = (counts[entry.name] ?? 0) + n;
+      }
+    }
+    return counts;
+  },
+
   listSessions(roots: string[], project: CliProjectRef): CliSessionRef[] {
     const out: CliSessionRef[] = [];
     for (const root of roots) {

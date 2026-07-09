@@ -34,6 +34,14 @@ export interface CliSourceAdapter {
    */
   listSessions(roots: string[], project: CliProjectRef): CliSessionRef[];
 
+  /**
+   * Cheap per-project session COUNTS for every project in one pass (keyed by
+   * `CliProjectRef.key`). Unlike `listSessions` this must not read transcript
+   * bodies for titles — it exists so a projects listing can show counts without
+   * paying a full per-session read. Pure FS read; never throws.
+   */
+  countSessionsByProject?(roots: string[]): Record<string, number>;
+
   /** Absolute transcript path for a ref (the locator fed to the parser). */
   resolveTranscriptPath(ref: CliSessionRef): string;
 

@@ -16,7 +16,6 @@ import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 
 import type { ProjectAnnotation, SourceRef } from '../../api/types';
 import { cn } from '../../lib/cn';
-import { Badge } from '../ui/badge';
 
 /** Per-source project data, populated lazily on first expand (cache-on-expand). */
 export interface SourceProjects {
@@ -196,10 +195,23 @@ export function SourceTree({
                             className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left text-sm"
                           >
                             <span className="min-w-0 flex-1 truncate">{project.label}</span>
-                            {project.recommended && (
-                              <Badge variant="success" title={project.recommendReason}>
-                                recommended
-                              </Badge>
+                            {/* Non-recommended (only visible via show-all) gets a subtle
+                                warning dot instead of a loud badge; recommended rows are
+                                the default view and need no marker at all. */}
+                            {!project.recommended && (
+                              <span
+                                className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning"
+                                title={`无公开远端（不推荐公开）：${project.recommendReason}`}
+                                data-testid={`not-recommended-${project.key}`}
+                              />
+                            )}
+                            {typeof project.sessionCount === 'number' && (
+                              <span
+                                className="shrink-0 text-xs text-text-subtle"
+                                data-testid={`project-count-${project.key}`}
+                              >
+                                {project.sessionCount}
+                              </span>
                             )}
                           </button>
                         </div>

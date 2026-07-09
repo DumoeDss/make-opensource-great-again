@@ -99,6 +99,8 @@ export interface ProjectAnnotation {
   gitRemote: string | null;
   recommended: boolean;
   recommendReason: string;
+  /** Cheap per-project session count from the daemon (absent on older payloads). */
+  sessionCount?: number;
 }
 
 export interface SessionRef {

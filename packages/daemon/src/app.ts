@@ -251,8 +251,12 @@ export function createApp(options: AppOptions = {}): App {
         const adapter = getAdapter(params.sourceId);
         if (!adapter) return notFound(`unknown source "${params.sourceId}"`);
         const roots = adapter.locateRoots(homeDir);
-        // Enumeration never throws on a missing/unreadable tree.
-        const projects = adapter.listProjects(roots).map(annotateProject);
+        // Enumeration never throws on a missing/unreadable tree. Session counts
+        // come from the adapter's cheap one-pass counter (no transcript reads).
+        const counts = adapter.countSessionsByProject?.(roots) ?? {};
+        const projects = adapter
+          .listProjects(roots)
+          .map((p) => ({ ...annotateProject(p), sessionCount: counts[p.key] ?? 0 }));
         const showAll = url.searchParams.get('all') === '1' || url.searchParams.get('all') === 'true';
         const shown = showAll ? projects : projects.filter((p) => p.recommended);
         return {
