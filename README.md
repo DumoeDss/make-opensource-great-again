@@ -31,15 +31,50 @@
 - **脱敏是命门**：本地预检是拦截防线（不通过拒绝生成 PR），CI 是验证防线；纯自动清洗在理论上就不充分，人工确认门是默认设计而非可选项。
 - **双通道尊重隐私偏好**：想让所有开源模型受益就走公开数据集；只信任特定厂商就走直投。
 
+## 快速开始
+
+要求：Node.js ≥ 20（npm workspaces monorepo，TypeScript）。
+
+```bash
+npm install        # 安装全部 workspace 依赖
+npm run build      # 构建全部包（contracts → readers → sanitizer → ui → daemon → publisher → direct-submit）
+npm test           # vitest 全量测试
+npm run typecheck  # 全包类型检查
+```
+
+### 启动审查界面（浏览器）
+
+```bash
+npx mosga ui
+# 常用选项：
+#   -p, --port N       监听端口（默认 8899，或 $MOSGA_PORT）
+#       --no-open      只启动 daemon 不开浏览器（打印 URL）
+#       --data-repo P  你本地 clone 的公开数据仓库路径——出口① 发布所需；
+#                      仅启动时配置、永不经 HTTP 接受；省略则出口① 显示"需配置"
+```
+
+daemon 只绑定 `127.0.0.1`、无鉴权（v0.x 威胁模型：单机单用户），自托管界面在 `http://127.0.0.1:8899/ui/`。四步旅程：①选择会话 → ②处置命中 → ③签署确认 → ④选择出口（HuggingFace 数据集 PR / API 直投）。另有面向脚本场景的 `npx mosga-publish`（出口① 命令行）与 `npx mosga-submit`（出口② 命令行）。
+
+### 桌面壳（Tauri v2，可选）
+
+```bash
+npm run build:shell            # 产出桌面安装包（需要 Rust 工具链）
+# 或开发模式：
+cd apps/desktop && npm run dev # 自动构建 daemon 并以 adopt-or-spawn 模式启动
+```
+
 ## 项目状态
 
-🚧 **设计阶段**。完整设计文档（经 3 轮对抗性评审）见
-[`openspec/office-hours/agent-session-data-contribution.md`](openspec/office-hours/agent-session-data-contribution.md)。
+✅ **v0.3 已完成**（2026-07）。设计文档（均经多轮对抗性评审）：
+[数据贡献管道](rasen/office-hours/agent-session-data-contribution.md) ·
+[前端重设计](rasen/office-hours/frontend-ui-redesign.md)。
 
 ### 路线图
 
-- **v0.1** — Python CLI + Claude Code adapter + 三层脱敏 + 人工确认门 + 公开数据集通道（GitHub PR → HF）
-- **v0.2** — 出口②：API 重放直投（多厂商预设，用户自备 key）
+- ~~**v0.1** — TypeScript monorepo + Claude Code adapter + 三层脱敏 + 人工确认门（daemon + React 审查 UI）~~ ✅
+- ~~**v0.2** — 出口②：API 重放直投（复用 omnicross provider 生态，用户自备 key）+ Tauri 桌面壳~~ ✅
+- ~~**v0.3** — 前端重设计（omnicross/Claude 风格设计系统 + 四步旅程）+ 出口① HF 发布向导接线~~ ✅
+- **v0.4** — 公开数据仓库建仓 + CI 复扫 + HF 同步跑通（真实端到端首投）
 - **v1.x** — 更多采集 adapter（Codex / Cursor / Cline …）
 - **v2** — 服务器收件模式，面向无 GitHub 账号的更广人群
 
