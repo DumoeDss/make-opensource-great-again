@@ -1,0 +1,69 @@
+{
+  "pipeline": "small-feature",
+  "classification": "small-feature",
+  "tier": "A",
+  "stages": {
+    "propose": {
+      "status": "done",
+      "worker": {
+        "role": "planner",
+        "agentName": "planner-v03"
+      },
+      "note": "25 tasks, strict valid; MODIFIED pr-submission keeps scenario titles verbatim + 2 new scenarios; new publish-exit-one capability"
+    },
+    "apply": {
+      "status": "done",
+      "worker": {
+        "role": "implementer",
+        "agentName": "implementer-s3"
+      },
+      "handoffs": [
+        {
+          "n": 1,
+          "path": null,
+          "reason": "api-stall (no document — mid-stream failure at 4/25)",
+          "completed": [
+            "1.1-1.4 publisher async runner start"
+          ],
+          "remaining": [
+            "21 tasks"
+          ],
+          "at": "2026-07-09T06:11:00.570Z",
+          "resumed": "warm SendMessage to same agent"
+        }
+      ],
+      "note": "25/25 after api-stall warm resume; 219 tests green (+25); 2 minor deviations (shared buildPlan, explicit stage button) pending adjudication; flaky pr.test.ts needs 20s timeout even isolated now"
+    },
+    "verify": {
+      "status": "done",
+      "worker": {
+        "role": "reviewer",
+        "agentName": "reviewer-s3"
+      },
+      "note": "CLEAN 0B/0M/2min/1triv; security axis held; both deviations ACCEPTED; gates green 219/219"
+    },
+    "review-loop": {
+      "status": "done",
+      "note": "0 rounds — CLEAN verdict"
+    },
+    "ship": {
+      "status": "in_progress",
+      "worker": {
+        "role": "shipper",
+        "agentName": "shipper-s1",
+        "model": "sonnet"
+      }
+    },
+    "archive": {
+      "status": "pending"
+    }
+  },
+  "rounds": 0,
+  "openFindings": [],
+  "notes": "Gates pre-authorized. Root rasen/. CLI rasen fork via node path.",
+  "acceptedKnown": [
+    "M1: focusRuleId not reset — repeat jump to same rule after manual group switch is no-op (low impact)",
+    "M2: stage_failed 500 echoes raw git stderr in log field (loopback single-user, low risk) — optional fast-follow",
+    "T1: redundant error key in pubError spread"
+  ]
+}

@@ -26,6 +26,7 @@ import {
   type Transport,
   type UserTarget,
 } from '@mosga/direct-submit';
+import { type AsyncCommandRunner, defaultAsyncRunner } from '@mosga/publisher';
 import { getAdapter, listAdapters } from '@mosga/session-readers';
 import {
   type CompiledRuleset,
@@ -45,6 +46,7 @@ import { z } from 'zod';
 
 import { buildEnvelope } from './envelope.js';
 import { createRouter, readJsonBody, sendJson, type HandlerResult, type Route } from './http.js';
+import { createPublishRoutes, validateDataRepoPath } from './publish.js';
 import { ReviewStore } from './reviews.js';
 import { isUiPath, resolveUiDist, serveUi, uiNotBuiltMessage } from './staticUi.js';
 import { annotateProject } from './whitelist.js';
@@ -93,6 +95,20 @@ export interface AppOptions {
   providerKeyConfigPath?: string;
   /** User-added provider targets exposed alongside the presets (key-free). */
   userTargets?: UserTarget[];
+  /**
+   * Path to the operator's LOCAL data-repo clone that 出口① publishes into. Same
+   * trust model as `providerKeyConfigPath`: server-side at startup ONLY, NEVER
+   * writable via any HTTP route, and never echoed back over HTTP (preflight
+   * reports a boolean, not the literal path). A bad path is a startup warning to
+   * the operator console, not an HTTP error.
+   */
+  dataRepoPath?: string;
+  /**
+   * Async git/gh command runner for the publish routes. Injected by tests (a fake
+   * that touches no real git/gh/network, like `submitTransport`); defaults to the
+   * real `spawn`-based runner so subprocesses never block the daemon event loop.
+   */
+  publishRunner?: AsyncCommandRunner;
 }
 
 export interface App {
@@ -136,6 +152,11 @@ export function createApp(options: AppOptions = {}): App {
   // A malformed/unreadable file here is a startup config error, surfaced to the
   // operator's console, not to any HTTP client.
   const customRules = loadTrustedCustomRules(options.customRulesPath);
+
+  // A bad --data-repo path is a startup warning to the operator, never an HTTP
+  // error (preflight then reports dataRepoConfigured:false). Same discipline as
+  // loadTrustedCustomRules — no file bytes/paths ever leak into a response.
+  validateDataRepoPath(options.dataRepoPath);
 
   // The compiled ruleset is deterministic; compile it once and reuse.
   let defaultRuleset: CompiledRuleset | undefined = options.ruleset;
@@ -493,6 +514,15 @@ export function createApp(options: AppOptions = {}): App {
         }
       },
     },
+
+    // ---- 出口① publish (plan/stage/submit + preflight) --------------------
+    ...createPublishRoutes({
+      store,
+      dataRepoPath: options.dataRepoPath,
+      runner: options.publishRunner ?? defaultAsyncRunner,
+      getRuleset: getDefaultRuleset,
+      now: options.now,
+    }),
   ];
 
   const router = createRouter(routes);

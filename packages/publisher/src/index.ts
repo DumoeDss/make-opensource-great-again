@@ -40,18 +40,26 @@ export {
   type RunPrResult,
   PR_BODY_FILE,
   planContribution,
+  planContributionAsync,
   stageContribution,
+  stageContributionAsync,
   submitContribution,
+  submitContributionAsync,
 } from './pr.js';
 
 export { loadTrustedCustomRules } from './config.js';
 
 export {
   type CommandRunner,
+  type AsyncCommandRunner,
   type RunResult,
   defaultRunner,
+  defaultAsyncRunner,
   isGitAvailable,
   isGhAvailable,
+  isGitAvailableAsync,
+  isGhAvailableAsync,
+  ghAuthenticatedAsync,
 } from './runner.js';
 
 export { gitleaksVersion, resolveSanitizerPackageVersion } from './version.js';

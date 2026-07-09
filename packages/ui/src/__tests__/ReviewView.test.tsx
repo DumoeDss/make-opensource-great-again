@@ -24,6 +24,16 @@ function fakeClient(over: Partial<ApiClient> = {}): ApiClient {
     listProviders: vi.fn(async () => []),
     estimateSubmit: vi.fn(),
     submit: vi.fn(),
+    getPreflight: vi.fn(async () => ({
+      dataRepoConfigured: false,
+      gitAvailable: true,
+      ghAvailable: false,
+      ghAuthenticated: false,
+      repoClean: true,
+    })),
+    publishPlan: vi.fn(),
+    publishStage: vi.fn(),
+    publishSubmit: vi.fn(),
     ...over,
   } as ApiClient;
 }

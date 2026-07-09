@@ -7,7 +7,16 @@ import { type CompiledRuleset } from '@mosga/sanitizer';
 import { type ExportedRecord, exportSession, slugifyPathComponent } from './export.js';
 import { assertPrecheckClean } from './precheck.js';
 import { type EngineInfo, type ProvenanceStamp } from './provenance.js';
-import { type CommandRunner, defaultRunner, isGhAvailable, isGitAvailable } from './runner.js';
+import {
+  type AsyncCommandRunner,
+  type CommandRunner,
+  defaultAsyncRunner,
+  defaultRunner,
+  isGhAvailable,
+  isGhAvailableAsync,
+  isGitAvailable,
+  isGitAvailableAsync,
+} from './runner.js';
 
 /** Working file (inside the clone, never committed) holding the rendered PR body. */
 export const PR_BODY_FILE = '.mosga-pr-body.md';
@@ -33,6 +42,11 @@ export interface ContributionOptions {
   license?: string;
   /** Command runner (git/gh). Injectable; defaults to real child processes. */
   runner?: CommandRunner;
+  /**
+   * Async command runner (git/gh). Used by the `*Async` variants so a subprocess
+   * never blocks the daemon event loop. Injectable; defaults to `spawn`-based.
+   */
+  asyncRunner?: AsyncCommandRunner;
 }
 
 /** A fully-planned contribution: everything needed to stage + open a PR, computed in memory. */
@@ -77,7 +91,35 @@ export interface ContributionPlan {
  */
 export function planContribution(session: SanitizedSession, options: ContributionOptions): ContributionPlan {
   const runner = options.runner ?? defaultRunner;
+  return buildPlan(session, options, isGhAvailable(runner));
+}
 
+/**
+ * Async twin of `planContribution`: identical in-memory export + pre-check, but
+ * the `ghAvailable` probe runs through the async runner so it never blocks the
+ * daemon event loop. The `compareUrl` (which needs a `git remote` read) is
+ * derived by the daemon, not here — `ContributionPlan` carries no remote URL.
+ */
+export async function planContributionAsync(
+  session: SanitizedSession,
+  options: ContributionOptions,
+): Promise<ContributionPlan> {
+  const asyncRunner = options.asyncRunner ?? defaultAsyncRunner;
+  return buildPlan(session, options, await isGhAvailableAsync(asyncRunner));
+}
+
+/**
+ * The pure (in-memory, no subprocess) plan computation shared by the sync and
+ * async plan entry points. Runs the export + MANDATORY pre-check (throwing
+ * `PublishRefusedError` on any surviving blocking finding — nothing planned),
+ * then derives the deterministic branch/paths/PR body/commands. The only thing
+ * the two entry points differ on is how `ghAvailable` was probed.
+ */
+function buildPlan(
+  session: SanitizedSession,
+  options: ContributionOptions,
+  ghAvailable: boolean,
+): ContributionPlan {
   // 1. Export (serialize + provenance). Refuses an un-stamped session.
   const record = exportSession(session, {
     sanitizerPackageVersion: options.sanitizerPackageVersion,
@@ -130,7 +172,7 @@ export function planContribution(session: SanitizedSession, options: Contributio
     provenance: record.provenance,
     engine: precheck.engine,
     recordCount: record.recordCount,
-    ghAvailable: isGhAvailable(runner),
+    ghAvailable,
     stagedFiles,
     commands,
   };
@@ -185,6 +227,45 @@ export function stageContribution(plan: ContributionPlan, options: ContributionO
 }
 
 /**
+ * Async twin of `stageContribution` — the exact same steps (write the record +
+ * provenance sidecar + PR body, then `git checkout -b`/`add`/`commit`) run
+ * through the async runner so the daemon event loop is never blocked. Requires
+ * `git`. The file writes stay synchronous (small local writes, not subprocesses).
+ */
+export async function stageContributionAsync(
+  plan: ContributionPlan,
+  options: ContributionOptions,
+): Promise<StageResult> {
+  const runner = options.asyncRunner ?? defaultAsyncRunner;
+  if (!(await isGitAvailableAsync(runner))) {
+    throw new Error('git is not available; cannot stage the contribution locally');
+  }
+  const repo = options.targetRepo;
+
+  const recordAbsolutePath = writeRepoFile(repo, plan.recordPath, plan.record.fileContents);
+  writeRepoFile(repo, plan.provenancePath, `${JSON.stringify(plan.provenance, null, 2)}\n`);
+  writeRepoFile(repo, PR_BODY_FILE, plan.prBody);
+
+  const steps: Array<[string, string[]]> = [
+    ['git', ['checkout', '-b', plan.branch]],
+    ['git', ['add', ...plan.stagedFiles]],
+    ['git', ['commit', '-m', plan.commitMessage]],
+  ];
+  let log = '';
+  let committed = true;
+  for (const [cmd, args] of steps) {
+    const res = await runner.runAsync(cmd, args, { cwd: repo });
+    log += `$ ${cmd} ${args.join(' ')}\n${res.stdout}${res.stderr}\n`;
+    if (res.code !== 0) {
+      committed = false;
+      break;
+    }
+  }
+
+  return { committed, branch: plan.branch, stagedFiles: plan.stagedFiles, recordAbsolutePath, log };
+}
+
+/**
  * Push the branch and open the PR via `gh` (auth handled by `gh`). Requires the
  * `gh` CLI; throws when absent so callers fall back to `plan.commands` + the
  * manual path. Never invoked by tests — no live external PR.
@@ -220,8 +301,50 @@ export function submitContribution(plan: ContributionPlan, options: Contribution
   return { opened: pr.code === 0, log: `${push.stdout}${pr.stdout}${pr.stderr}` };
 }
 
+/**
+ * Async twin of `submitContribution` — the same `git push` + `gh pr create`
+ * through the async runner. Requires `gh`; throws when absent so the daemon can
+ * surface the gh-free manual path. A non-zero push maps to `opened:false` with a
+ * `pushRejected` flag so the caller can classify `push_rejected` distinctly.
+ */
+export async function submitContributionAsync(
+  plan: ContributionPlan,
+  options: ContributionOptions,
+): Promise<RunPrResult> {
+  const runner = options.asyncRunner ?? defaultAsyncRunner;
+  if (!(await isGhAvailableAsync(runner))) {
+    throw new Error(
+      'gh CLI not available; run the emitted commands manually (see plan.commands) to push + open the PR',
+    );
+  }
+  const repo = options.targetRepo;
+  const push = await runner.runAsync('git', ['push', '-u', 'origin', plan.branch], { cwd: repo });
+  if (push.code !== 0) {
+    return { opened: false, pushRejected: true, log: `push failed:\n${push.stderr}` };
+  }
+  const pr = await runner.runAsync(
+    'gh',
+    [
+      'pr',
+      'create',
+      '--base',
+      plan.targetBranch,
+      '--head',
+      plan.branch,
+      '--title',
+      plan.prTitle,
+      '--body-file',
+      join(repo, PR_BODY_FILE),
+    ],
+    { cwd: repo },
+  );
+  return { opened: pr.code === 0, log: `${push.stdout}${pr.stdout}${pr.stderr}` };
+}
+
 export interface RunPrResult {
   opened: boolean;
+  /** True when the push (not the PR open) was rejected — lets a caller classify `push_rejected`. */
+  pushRejected?: boolean;
   log: string;
 }
 

@@ -22,8 +22,10 @@
         "mosga-v03-ui-design-system"
       ],
       "mode": "serial",
-      "status": "shipping-archived",
-      "ship": "206f1a6"
+      "status": "done",
+      "ship": "206f1a6",
+      "archive": "92ca67d",
+      "archivedPath": "rasen/changes/archive/2026-07-09-mosga-v03-ui-journey-shell"
     },
     {
       "id": "mosga-v03-publish-exit-one",

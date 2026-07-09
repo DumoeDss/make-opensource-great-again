@@ -52,6 +52,7 @@ export function ReviewView({
   const [error, setError] = useState<string | null>(null);
   const [exported, setExported] = useState<SanitizedSession | null>(null);
   const [activeStep, setActiveStep] = useState<JourneyStep>(2);
+  const [focusRuleId, setFocusRuleId] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const pendingRef = useRef<(() => Promise<{ report: SanitizationReport }>) | null>(null);
 
@@ -118,6 +119,13 @@ export function ReviewView({
   const onSign = (): void => {
     setSigned(true);
     setActiveStep(4);
+  };
+
+  // The publish wizard's `precheck_refused` view jumps back to step ② and asks
+  // the disposition workspace to select the group holding the named rule.
+  const onJumpToRule = (ruleId: string): void => {
+    setFocusRuleId(ruleId);
+    setActiveStep(2);
   };
 
   const onExport = async (): Promise<void> => {
@@ -207,6 +215,7 @@ export function ReviewView({
             onBatchByType={onBatchByType}
             onNonText={onNonText}
             busy={busy}
+            focusRuleId={focusRuleId}
           />
         )}
         {currentStep === 3 && <SigningCard report={report} onSign={onSign} />}
@@ -219,6 +228,8 @@ export function ReviewView({
             exporting={busy}
             onExport={() => void onExport()}
             onSubmitted={() => setCompleted(true)}
+            onPublished={() => setCompleted(true)}
+            onJumpToRule={onJumpToRule}
           />
         )}
       </main>

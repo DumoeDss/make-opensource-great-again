@@ -12,6 +12,11 @@ import type {
   NormalizationCategory,
   ProjectsResponse,
   ProviderTarget,
+  PublishError,
+  PublishPlan,
+  PublishPreflight,
+  PublishStageResult,
+  PublishSubmitResult,
   ReplayMode,
   ReportResponse,
   SanitizationReport,
@@ -20,6 +25,9 @@ import type {
   SubmissionReceipt,
   SubmitEstimate,
 } from './types';
+
+/** A publish call result: success payload, or a typed `{ code, error, ... }`. */
+export type PublishResult<T> = ({ ok: true } & T) | ({ ok: false } & PublishError);
 
 export interface ApiClient {
   getHealth(): Promise<HealthResponse>;
@@ -47,6 +55,10 @@ export interface ApiClient {
     reviewId: string,
     body: { providerId: string; model: string; replayMode: ReplayMode; consent: ContributionConsent },
   ): Promise<{ ok: true; receipt: SubmissionReceipt } | { ok: false; status: number; error: string }>;
+  getPreflight(): Promise<PublishPreflight>;
+  publishPlan(reviewId: string): Promise<PublishResult<{ plan: PublishPlan }>>;
+  publishStage(reviewId: string): Promise<PublishResult<{ result: PublishStageResult }>>;
+  publishSubmit(reviewId: string): Promise<PublishResult<{ result: PublishSubmitResult }>>;
 }
 
 async function json<T>(res: Response): Promise<T> {
@@ -147,6 +159,24 @@ export const apiClient: ApiClient = {
     }
     const data = (await res.json()) as { receipt: SubmissionReceipt };
     return { ok: true, receipt: data.receipt };
+  },
+  async getPreflight() {
+    return json<PublishPreflight>(await fetch('/api/publish/preflight'));
+  },
+  async publishPlan(reviewId) {
+    const res = await post(`/api/reviews/${encodeURIComponent(reviewId)}/publish/plan`);
+    if (!res.ok) return { ok: false, ...((await res.json().catch(() => ({}))) as PublishError) };
+    return { ok: true, plan: (await res.json()) as PublishPlan };
+  },
+  async publishStage(reviewId) {
+    const res = await post(`/api/reviews/${encodeURIComponent(reviewId)}/publish/stage`);
+    if (!res.ok) return { ok: false, ...((await res.json().catch(() => ({}))) as PublishError) };
+    return { ok: true, result: (await res.json()) as PublishStageResult };
+  },
+  async publishSubmit(reviewId) {
+    const res = await post(`/api/reviews/${encodeURIComponent(reviewId)}/publish/submit`);
+    if (!res.ok) return { ok: false, ...((await res.json().catch(() => ({}))) as PublishError) };
+    return { ok: true, result: (await res.json()) as PublishSubmitResult };
   },
 };
 

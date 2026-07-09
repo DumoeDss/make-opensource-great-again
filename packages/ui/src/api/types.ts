@@ -116,3 +116,67 @@ export interface ExportResponse {
   session: SanitizedSession;
   gate: SanitizationReport['gate'];
 }
+
+// ---- 出口① publish (plan / stage / submit + preflight) -------------------
+
+/** The five capability flags driving the exit-① card's four states. */
+export interface PublishPreflight {
+  dataRepoConfigured: boolean;
+  gitAvailable: boolean;
+  ghAvailable: boolean;
+  ghAuthenticated: boolean;
+  repoClean: boolean;
+}
+
+/**
+ * The UI-safe subset of the publisher's `ContributionPlan` (record bytes
+ * EXCLUDED — a byte count + content hash stand in), plus the daemon-derived
+ * `compareUrl` for the gh-free browser fallback.
+ */
+export interface PublishPlan {
+  branch: string;
+  targetBranch: string;
+  recordPath: string;
+  provenancePath: string;
+  prTitle: string;
+  prBody: string;
+  commitMessage: string;
+  recordCount: number;
+  ghAvailable: boolean;
+  stagedFiles: string[];
+  commands: string[];
+  provenance: Record<string, unknown>;
+  engine: Record<string, unknown>;
+  compareUrl: string | null;
+  recordBytes: number;
+  contentHash: string;
+}
+
+/** A typed publish error body (mirrors `/submit`: `{ error, code, ...detail }`). */
+export interface PublishError {
+  error: string;
+  code: string;
+  /** `precheck_refused` detail: rule-aggregated blocking counts (never raw values). */
+  blockingByRule?: Array<{ ruleId: string; count: number }>;
+  /** `branch_exists` detail: the existing deterministic branch name. */
+  branch?: string;
+}
+
+export interface PublishStageResult {
+  staged: true;
+  branch: string;
+  stagedFiles: string[];
+  recordPath: string;
+}
+
+export interface PublishSubmitResult {
+  opened: true;
+  branch: string;
+  receipt: {
+    branch: string;
+    targetBranch: string;
+    prTitle: string;
+    compareUrl: string | null;
+    submittedAt: string;
+  };
+}

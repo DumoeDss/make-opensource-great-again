@@ -14,6 +14,7 @@ import type { ProviderTarget } from '../api/types';
 import { cn } from '../lib/cn';
 import { getTheme, setTheme, subscribe, type ThemeChoice } from '../lib/theme';
 import { useDaemonStatus } from '../lib/useDaemonStatus';
+import { usePreflight } from '../lib/usePreflight';
 
 interface SettingsPageProps {
   client: ApiClient;
@@ -29,6 +30,7 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
   const [theme, setThemeState] = useState<ThemeChoice>(getTheme());
   const [providers, setProviders] = useState<ProviderTarget[]>([]);
   const daemon = useDaemonStatus(client);
+  const { flags } = usePreflight(client);
 
   useEffect(() => subscribe(setThemeState), []);
 
@@ -92,6 +94,23 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
                   : '不可达'}
             </span>
           </div>
+        </div>
+      </section>
+
+      <section className="space-y-2">
+        <h2 className="text-sm font-medium text-text-muted">数据仓库（出口①，只读）</h2>
+        <div className="rounded-md border border-border bg-surface-1 p-3 text-sm" data-testid="settings-data-repo">
+          <div className="flex items-center justify-between">
+            <span className="text-text-muted">状态</span>
+            <span data-testid="settings-data-repo-status">
+              {flags == null ? '检测中…' : flags.dataRepoConfigured ? '已配置' : '未配置'}
+            </span>
+          </div>
+          <p className="mt-2 text-xs text-text-subtle">
+            数据仓库路径是服务端信任配置，仅可在启动时以{' '}
+            <code className="font-mono">--data-repo &lt;路径&gt;</code>{' '}
+            指定，不经界面填写、不经 HTTP 回显。修改请以该参数重启 daemon。
+          </p>
         </div>
       </section>
 

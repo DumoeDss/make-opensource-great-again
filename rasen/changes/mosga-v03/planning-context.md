@@ -78,3 +78,20 @@
 - **Badge span 修复**（切片 1 reviewer Minor）：Badge 从 `<div>` 改渲染 `<span>`（类型 HTMLSpanElement），使其在 Picker `<button>` 内合法嵌套；视觉不变。**切片 3 planner 注意**：Badge 现为 span。
 - **client `getHealth()` 加法安全**：测试 fakeClient/emptyClient 用 `as ApiClient` 强转，缺方法仍编译；顺手补进 stub。
 - **切片 3 接口衔接**：出口① 卡槽已由 ExitCards 建好（就绪态占位）；切片 3 只需把 3 步向导塞入该卡 + 加 daemon publish 路由/preflight/dataRepoPath。dialog/confirm-dialog 已可用。设置页已在，切片 3 往里加数据仓库路径只读行 + preflight 四态。
+
+## 归档工具 gotcha（2026-07-09，切片 2 归档时发现，切片 3 必读）
+
+- rasen archive 对 MODIFIED 块内的 scenario 按**标题逐字匹配**（specs-apply.ts findMissingCurrentScenarios），改标题=匹配失败=archive 拒绝（transactional，一次只报第一个）。**delta spec 修改既有 requirement 时，scenario 标题必须与主 spec 逐字一致**，只改 WHEN/THEN 正文；新增 scenario 不受限。切片 2 归档时 4 处改名标题被 shipper 纯标签回退后通过。
+
+## 切片 3（publish-exit-one）planner 决策记录（2026-07-09，已 propose + strict validate 通过，portfolio 最后一片）
+
+- **规格结构 = 新 capability `publish-exit-one`(ADDED 6 条) + `pr-submission`(MODIFIED 1 条)**：daemon 路由/配置/UI 进新 cap；publisher 异步 runner 拓宽写进 pr-submission 的 "gh CLI…manual path" 条。**遵守上面归档 gotcha**：MODIFIED 块保留原 2 个 scenario 标题逐字不变（只加 2 个新 scenario），archive 安全。
+- **异步 runner = 唯一被批准的"换容器不换逻辑"例外**：publisher 加 `AsyncCommandRunner.runAsync`(spawn) + `defaultAsyncRunner` + `isGit/GhAvailableAsync` + `ghAuthenticatedAsync`(gh auth status) + `stage/submit/planContributionAsync`（逐行镜像 sync 体）；**sync CommandRunner + sync stage/submit 全保留**给 CLI/测试。daemon 只走异步路径。
+- **daemon 新增全部注入化**：`AppOptions` 加 `dataRepoPath`（信任模型 = `providerKeyConfigPath`：仅启动配置、永不经 HTTP 写入）+ `publishRunner?: AsyncCommandRunner`（测试注入，仿 `submitTransport`）。CLI `--data-repo <path>` → `startDaemon({dataRepoPath})`。路由实现放新文件 `packages/daemon/src/publish.ts`，注册进 app.ts `routes[]`。
+- **preflight 严守 lead 指定 5 字段** `{dataRepoConfigured,gitAvailable,ghAvailable,ghAuthenticated,repoClean}`——**不回传字面 path**（与从不回显 providerKeyConfigPath 一致），设置页只显"已配置/未配置"+ 重启指引。**与设计 B4"当前值"措辞有张力**：选安全读法（不显 path），owner 若坚持是加一字段小改，design 已标注。
+- **plan 返回 UI 安全子集**（枚举字段见 design 表），**排除 record 字节**，代以 `recordBytes`+`contentHash`；append daemon 派生 `compareUrl`（clone 内 `git remote get-url origin` → GitHub compare URL，SSH/HTTPS 归一，非 GitHub/缺 origin = null）。
+- **错误分类对标 /submit 的 `{error,code,...}`**：`precheck_refused`(422, `blockingByRule:[{ruleId,count}]` 规则聚合无原值)/`repo_dirty`(409)/`branch_exists`(409 附既有分支名+删或续指引、**不自动清理**)/`gh_unauthenticated`(409)/`push_rejected`(409) + `data_repo_unconfigured`/`git_unavailable`/`publish_in_flight`。stage 检查序：mutex→dataRepo→git→gate(409)→repoClean→plan/precheck→branch 碰撞→写+提交。
+- **stage 状态模型 + 互斥**：`createApp` 闭包内 `Map<reviewId,{staged,branch}>` + `let publishInFlight`（单本地用户一布尔够）；submit 按 flag 决定先 stage 否；fresh stage 撞 branch_exists（无 flag）= 残留 → 指引不清理。plan 只读不上 mutex。
+- **UI**：新 `PublishWizard.tsx`（预检→预览→提交，pending/timeout 态，precheck_refused 规则聚合 + `onJumpToRule` 回跳②）；`prBody` 带样式 `<pre>`（Open Question 3 建议，不引 markdown 渲染器）；gh-free 兜底 = 落盘位置 + `plan.commands`（末条 gh pr create）+ git push + compareUrl + 逐条复制。ExitCards 出口① 换 preflight 四态卡，就绪开向导，`onPublished`→completed。SettingsPage 加数据仓库只读行。client 加 `getPreflight/publishPlan/publishStage/publishSubmit`（result-union，仿 exportReview/submit）。
+- **测试策略针对 pr.test.ts Windows 并发超时 flaky**：daemon publish 测试**注入 fake AsyncCommandRunner + 临时 dataRepoPath**（零真实 git/gh/网络）；碰 real git 的测试**串行 + 提高 timeout + `isGitAvailable()` 假则 skip**；能 fake 就别加 real-git 测试。
+- **portfolio 收尾**：三片全 propose + strict validate 通过。切片 3 前后端最大片，隐藏工作量在"daemon 改写用户本地 git clone 的错误面"——预算按错误路径 ≈ 快乐路径。Later（不做）：CI 复扫/社区仓库侧、回执持久化+历史页、HuggingFace 同步、markdown 渲染器。

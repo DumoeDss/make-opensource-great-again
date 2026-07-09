@@ -23,6 +23,7 @@ interface CliArgs {
   command: string;
   help: boolean;
   noOpen: boolean;
+  dataRepoPath?: string;
 }
 
 /** Injectable seams so tests can spy the browser opener and daemon start. */
@@ -38,6 +39,7 @@ function parseArgs(argv: string[]): CliArgs {
   let command = '';
   let help = false;
   let noOpen = false;
+  let dataRepoPath: string | undefined;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--port' || arg === '-p') {
@@ -45,6 +47,11 @@ function parseArgs(argv: string[]): CliArgs {
       i += 1;
     } else if (arg.startsWith('--port=')) {
       port = Number(arg.slice('--port='.length));
+    } else if (arg === '--data-repo') {
+      dataRepoPath = argv[i + 1];
+      i += 1;
+    } else if (arg.startsWith('--data-repo=')) {
+      dataRepoPath = arg.slice('--data-repo='.length);
     } else if (arg === '--no-open') {
       noOpen = true;
     } else if (arg === '--help' || arg === '-h') {
@@ -53,7 +60,7 @@ function parseArgs(argv: string[]): CliArgs {
       command = arg;
     }
   }
-  return { port, command, help, noOpen };
+  return { port, command, help, noOpen, dataRepoPath };
 }
 
 function openBrowser(url: string): void {
@@ -86,13 +93,16 @@ async function probeMosgaDaemon(port: number): Promise<boolean> {
 const HELP = `mosga ui — local session review daemon
 
 Usage:
-  mosga ui [--port N] [--no-open]
+  mosga ui [--port N] [--no-open] [--data-repo <path>]
 
 Options:
-  -p, --port N   Port to bind on 127.0.0.1 (default ${DEFAULT_PORT}, or $MOSGA_PORT)
-      --no-open  Start the daemon without opening the OS browser (prints the URL);
-                 used by the desktop shell, which loads /ui in its own webview
-  -h, --help     Show this help
+  -p, --port N        Port to bind on 127.0.0.1 (default ${DEFAULT_PORT}, or $MOSGA_PORT)
+      --no-open       Start the daemon without opening the OS browser (prints the URL);
+                      used by the desktop shell, which loads /ui in its own webview
+      --data-repo P   Path to your LOCAL clone of the public data repo that 出口①
+                      publishes into. Trusted startup config only — never accepted
+                      over HTTP, never echoed back. Omit to disable 出口① publishing.
+  -h, --help          Show this help
 
 The daemon binds loopback only and has no authentication (v0.1 threat model:
 single local user). See the @mosga/daemon README.`;
@@ -129,7 +139,7 @@ export async function run(
   const uiUrl = `http://${LOOPBACK_HOST}:${args.port}/ui/`;
 
   try {
-    const daemon = await start({ port: args.port });
+    const daemon = await start({ port: args.port, dataRepoPath: args.dataRepoPath });
     stdout(`mosga daemon listening on ${daemon.url}\n`);
     if (args.noOpen) {
       // The shell loads /ui in its own webview; just advertise the URL.

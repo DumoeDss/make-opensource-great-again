@@ -7,7 +7,7 @@
  * cards. 归一化统计 is read-only (Layer3View) and contributes no gate count.
  */
 import { BarChart3, Image, KeyRound, type LucideIcon, SlidersHorizontal } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import type {
   Disposition,
@@ -36,6 +36,8 @@ interface DispositionWorkspaceProps {
   onBatchByType: (category: NormalizationCategory, disposition: Disposition) => void;
   onNonText: (messageUuid: string, disposition: NonTextDisposition) => void;
   busy?: boolean;
+  /** When set, select the group holding this rule (from the wizard's 回到② jump). */
+  focusRuleId?: string | null;
 }
 
 const GROUP_ICONS: Record<GroupId, LucideIcon> = {
@@ -66,6 +68,7 @@ export function DispositionWorkspace({
   onBatchByType,
   onNonText,
   busy,
+  focusRuleId,
 }: DispositionWorkspaceProps): JSX.Element {
   // Secrets = blocking secrets (excl. meta); custom = blocking custom + meta
   // findings (engine/meta hits have no editable text but must be clearable).
@@ -94,6 +97,13 @@ export function DispositionWorkspace({
   ];
 
   const [group, setGroup] = useState<GroupId>('secrets');
+
+  // A 回到② jump from the publish wizard: select whichever group holds the rule.
+  useEffect(() => {
+    if (!focusRuleId) return;
+    if (secretsFindings.some((f) => f.ruleId === focusRuleId)) setGroup('secrets');
+    else if (customFindings.some((f) => f.ruleId === focusRuleId)) setGroup('custom');
+  }, [focusRuleId, secretsFindings, customFindings]);
 
   const groupFindings = group === 'secrets' ? secretsFindings : customFindings;
   const suggestions = group === 'secrets' || group === 'custom' ? ruleSuggestions(groupFindings) : [];
