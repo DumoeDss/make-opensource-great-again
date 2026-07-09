@@ -170,3 +170,27 @@ describe('report gate + non-text', () => {
     expect(session.messages[0].nonTextContent?.blockTypes).toContain('image');
   });
 });
+
+describe('ipv6 normalization precision (timestamp false-positive regression)', () => {
+  it('does not flag HH:MM:SS timestamps or short colon-hex runs as ipv6', () => {
+    const msg = makeMessage({
+      content: '05:15:08 build started, 23:59:59 finished, mac 00:11:22:33:44:55, verse 3:16',
+    });
+    const { report } = scanSession(makeSession([msg]), rs(), { generatedAt: AT });
+    expect(report.findings.filter((f) => f.category === 'ipv6')).toHaveLength(0);
+  });
+
+  it('still flags real IPv6 forms: full, middle/trailing compression, loopback', () => {
+    const content =
+      'full 2001:0db8:85a3:0000:0000:8a2e:0370:7334 mid 2001:db8::8a2e:370:7334 link fe80::1 lo ::1';
+    const msg = makeMessage({ content });
+    const { report } = scanSession(makeSession([msg]), rs(), { generatedAt: AT });
+    const spans = report.findings
+      .filter((f) => f.category === 'ipv6')
+      .map((f) => content.slice(f.location.span.start, f.location.span.end))
+      .sort();
+    expect(spans).toEqual(
+      ['2001:0db8:85a3:0000:0000:8a2e:0370:7334', '2001:db8::8a2e:370:7334', '::1', 'fe80::1'].sort(),
+    );
+  });
+});

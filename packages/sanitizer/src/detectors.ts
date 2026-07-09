@@ -41,10 +41,13 @@ const EMAIL_RE = /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,24}/g;
 const IPV4_RE =
   /\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b/g;
 
-// Pragmatic IPv6 matcher: full or `::`-compressed forms with at least one colon
-// pair. Non-blocking, so occasional imprecision is acceptable.
+// Pragmatic IPv6 matcher: the full 8-group form, or a `::`-compressed form with
+// at least one hex group attached. Requiring 7 colons or an explicit `::` keeps
+// colon-separated hex look-alikes out of the bucket — above all HH:MM:SS
+// timestamps (`05:15:08` is three valid hex groups), and also MAC addresses and
+// `chapter:verse` numbers. Non-blocking, so residual imprecision is acceptable.
 const IPV6_RE =
-  /\b(?:[A-Fa-f0-9]{1,4}:){2,7}[A-Fa-f0-9]{1,4}\b|(?:[A-Fa-f0-9]{1,4}:){1,7}:|::(?:[A-Fa-f0-9]{1,4}:){0,6}[A-Fa-f0-9]{1,4}/g;
+  /\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b|\b(?:[A-Fa-f0-9]{1,4}:){1,7}:(?:[A-Fa-f0-9]{1,4}(?::[A-Fa-f0-9]{1,4}){0,5})?(?![A-Fa-f0-9:])|::(?:[A-Fa-f0-9]{1,4}(?::[A-Fa-f0-9]{1,4}){0,6})\b/g;
 
 // Encoded project-key recognition (mosga-v02) — field-scoped to
 // `session.projectKey` ONLY, never run over arbitrary message text.
