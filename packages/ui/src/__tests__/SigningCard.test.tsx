@@ -37,23 +37,23 @@ describe('SigningCard', () => {
 describe('Stepper lock badge', () => {
   it('shows the remaining count while locked', () => {
     const { getByTestId } = render(
-      <Stepper current={2} cleared={false} signed={false} completed={false} pending={3} />,
+      <Stepper current={2} cleared={false} signed={false} completed={false} pending={3} maxEnterable={2} onNavigate={() => {}} />,
     );
     expect(getByTestId('lock-badge').textContent).toContain('还差 3 项解锁');
   });
 
   it('transitions cleared → signed → completed', () => {
     const cleared = render(
-      <Stepper current={3} cleared signed={false} completed={false} pending={0} />,
+      <Stepper current={3} cleared signed={false} completed={false} pending={0} maxEnterable={3} onNavigate={() => {}} />,
     );
     expect(cleared.getByTestId('lock-badge').textContent).toContain('已解锁');
     cleanup();
 
-    const signed = render(<Stepper current={4} cleared signed completed={false} pending={0} />);
+    const signed = render(<Stepper current={4} cleared signed completed={false} pending={0} maxEnterable={4} onNavigate={() => {}} />);
     expect(signed.getByTestId('lock-badge').textContent).toContain('已签署');
     cleanup();
 
-    const done = render(<Stepper current={4} cleared signed completed pending={0} />);
+    const done = render(<Stepper current={4} cleared signed completed pending={0} maxEnterable={4} onNavigate={() => {}} />);
     expect(done.getByTestId('lock-badge').textContent).toContain('已完成');
   });
 });

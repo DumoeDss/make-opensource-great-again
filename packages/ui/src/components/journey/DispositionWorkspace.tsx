@@ -6,7 +6,7 @@
  * the selected group. Batch operations are promoted to queue-top suggestion
  * cards. 归一化统计 is read-only (Layer3View) and contributes no gate count.
  */
-import { BarChart3, Image, KeyRound, type LucideIcon, SlidersHorizontal } from 'lucide-react';
+import { ArrowRight, BarChart3, CheckCircle2, Image, type LucideIcon, KeyRound, SlidersHorizontal, Wand2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import type {
@@ -38,6 +38,14 @@ interface DispositionWorkspaceProps {
   busy?: boolean;
   /** When set, select the group holding this rule (from the wizard's 回到② jump). */
   focusRuleId?: string | null;
+  /** Auto-cleanable hits in this session (pending + blocking + non-meta); >0 shows the clean card. */
+  cleanableCount?: number;
+  /** Replace every cleanable hit in this session with its pseudonym. */
+  onCleanAll?: () => void;
+  /** The gate is unlocked → surface the primary CTA to move on to ③ 签署. */
+  cleared?: boolean;
+  /** Advance the journey to ③ 签署确认. */
+  onProceedToSign?: () => void;
 }
 
 const GROUP_ICONS: Record<GroupId, LucideIcon> = {
@@ -69,6 +77,10 @@ export function DispositionWorkspace({
   onNonText,
   busy,
   focusRuleId,
+  cleanableCount = 0,
+  onCleanAll,
+  cleared,
+  onProceedToSign,
 }: DispositionWorkspaceProps): JSX.Element {
   // Secrets = blocking secrets (excl. meta); custom = blocking custom + meta
   // findings (engine/meta hits have no editable text but must be clearable).
@@ -109,8 +121,26 @@ export function DispositionWorkspace({
   const suggestions = group === 'secrets' || group === 'custom' ? ruleSuggestions(groupFindings) : [];
 
   return (
-    <div className="grid gap-4 md:grid-cols-[13rem_1fr]" data-testid="disposition-workspace">
-      <nav className="space-y-1" data-testid="group-nav">
+    <div className="space-y-3">
+      {/* Gate cleared → the step's explicit primary CTA: move on to ③ 签署. */}
+      {cleared && onProceedToSign && (
+        <div
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-success/50 bg-success/10 p-3"
+          data-testid="cleared-banner"
+        >
+          <span className="flex items-center gap-2 text-sm font-medium text-success">
+            <CheckCircle2 className="h-4 w-4" strokeWidth={1.5} />
+            该会话所有命中已处置完毕。
+          </span>
+          <Button type="button" onClick={onProceedToSign} data-testid="goto-sign">
+            前往 ③ 签署确认
+            <ArrowRight className="h-4 w-4" strokeWidth={1.5} />
+          </Button>
+        </div>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-[13rem_1fr]" data-testid="disposition-workspace">
+        <nav className="space-y-1" data-testid="group-nav">
         {groups.map((g) => {
           const Icon = GROUP_ICONS[g.id];
           const active = g.id === group;
@@ -149,6 +179,34 @@ export function DispositionWorkspace({
       </nav>
 
       <div className="min-w-0 space-y-3" data-testid="disposition-queue">
+        {/* No-pressure donation: one action clears every rule-based hit at once. */}
+        {cleanableCount > 0 && onCleanAll && (
+          <div
+            className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/40 bg-primary-soft/25 p-4"
+            data-testid="clean-all-card"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">
+                该会话还有 {cleanableCount} 处命中可按规则一键替换
+              </p>
+              <p className="mt-0.5 text-xs text-text-muted">
+                密钥 / 自定义命中将替换为稳定化名；引擎降级与图像附件仍需你人工确认。
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="lg"
+              disabled={busy}
+              onClick={onCleanAll}
+              data-testid="clean-all"
+              className="shrink-0"
+            >
+              <Wand2 className="h-4 w-4" strokeWidth={1.5} />
+              一键全部替换为化名
+            </Button>
+          </div>
+        )}
+
         {suggestions.length > 0 && (
           <div className="space-y-2" data-testid="batch-suggestions">
             {suggestions.map((s) => (
@@ -193,6 +251,7 @@ export function DispositionWorkspace({
         {group === 'normalization' && (
           <Layer3View report={report} onBatchByType={onBatchByType} busy={busy} />
         )}
+      </div>
       </div>
     </div>
   );

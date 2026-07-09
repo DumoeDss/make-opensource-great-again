@@ -378,3 +378,84 @@ describe('ReviewView queue journey (N>1)', () => {
     expect(onRestart).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('ReviewView UX — triage, one-click clean, and the sign CTA', () => {
+  it('one-click clean replaces each pending non-meta rule once and never auto-disposes meta hits', async () => {
+    const report = makeReport([
+      makeFinding({ id: 'fx', ruleId: 'aws-access-token', disposition: 'pending' }),
+      makeFinding({ id: 'fy', ruleId: 'aws-access-token', disposition: 'pending' }),
+      // A meta/engine hit — must NOT be auto-disposed.
+      makeFinding({ id: 'meta1', ruleId: 'redos-guard', disposition: 'pending' }),
+    ]);
+    const cleaned = makeReport([
+      makeFinding({ id: 'fx', ruleId: 'aws-access-token', disposition: 'replace' }),
+      makeFinding({ id: 'fy', ruleId: 'aws-access-token', disposition: 'replace' }),
+      makeFinding({ id: 'meta1', ruleId: 'redos-guard', disposition: 'pending' }),
+    ]);
+    const batch = vi.fn(async (_reviewId: string, _by: string, _key: string, _disp: string) => ({
+      report: cleaned,
+      gate: cleaned.gate,
+    }));
+    const { getByTestId } = render(<ReviewView client={fakeClient({ batch })} items={one(report)} />);
+
+    // The clean card is offered (2 cleanable hits — the meta hit is excluded).
+    expect(getByTestId('clean-all-card').textContent).toContain('2 处');
+    fireEvent.click(getByTestId('clean-all'));
+
+    await waitFor(() => expect(batch).toHaveBeenCalledWith('r1', 'rule', 'aws-access-token', 'replace'));
+    // Exactly one distinct rule → one batch call; the meta rule is never auto-cleaned.
+    expect(batch).toHaveBeenCalledTimes(1);
+    expect(batch.mock.calls.some((c) => c[2] === 'redos-guard')).toBe(false);
+  });
+
+  it('offers the goto-sign CTA once cleared and advances to ③ on click', () => {
+    const cleared = makeReport([makeFinding({ id: 'fx', disposition: 'replace' })]);
+    const { getByTestId } = render(<ReviewView client={fakeClient()} items={one(cleared)} />);
+
+    // Gate unlocked at ② → the primary "go sign" CTA appears.
+    expect(getByTestId('cleared-banner')).toBeTruthy();
+    fireEvent.click(getByTestId('goto-sign'));
+    expect(getByTestId('signing-card')).toBeTruthy();
+  });
+
+  it('triages queue chips: pending (with hit count) vs no-work', () => {
+    const items = many(
+      makeReport([
+        makeFinding({ id: 'a', disposition: 'pending' }),
+        makeFinding({ id: 'b', disposition: 'pending' }),
+      ]),
+      makeReport([makeFinding({ id: 'c', disposition: 'replace' })]),
+    );
+    const { getByTestId } = render(<ReviewView client={fakeClient()} items={items} />);
+
+    const chip1 = getByTestId('queue-item-1');
+    expect(chip1.getAttribute('data-state')).toBe('待处置');
+    expect(chip1.textContent).toContain('·2'); // hit-count badge
+    expect(getByTestId('queue-item-2').getAttribute('data-state')).toBe('无需处置');
+  });
+
+  it('queue-clean-all cleans unsigned sessions and skips signed ones', async () => {
+    const item1 = makeReport([makeFinding({ id: 'a', disposition: 'replace' })]); // cleared → signable
+    const cleaned2 = makeReport([makeFinding({ id: 'b', ruleId: 'aws-access-token', disposition: 'replace' })]);
+    const batch = vi.fn(async (_reviewId: string, _by: string, _key: string, _disp: string) => ({
+      report: cleaned2,
+      gate: cleaned2.gate,
+    }));
+    const items = many(
+      item1,
+      makeReport([makeFinding({ id: 'b', ruleId: 'aws-access-token', disposition: 'pending' })]),
+    );
+    const { getByTestId } = render(<ReviewView client={fakeClient({ batch })} items={items} />);
+
+    // Sign session 1, auto-advancing to session 2 (session 1 now signed).
+    fireEvent.click(getByTestId('goto-step-3'));
+    fireEvent.click(getByTestId('sign-checkbox'));
+    fireEvent.click(getByTestId('sign-submit'));
+
+    // The queue-level clean button appears (only session 2 has a cleanable hit).
+    fireEvent.click(getByTestId('queue-clean-all'));
+    await waitFor(() => expect(batch).toHaveBeenCalledWith('r2', 'rule', 'aws-access-token', 'replace'));
+    // The signed session (r1) is skipped entirely.
+    expect(batch.mock.calls.some((c) => c[0] === 'r1')).toBe(false);
+  });
+});

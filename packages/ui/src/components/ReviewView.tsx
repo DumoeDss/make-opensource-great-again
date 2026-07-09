@@ -11,7 +11,7 @@ import type {
   SanitizationReport,
   SanitizedSession,
 } from '../api/types';
-import { blockingFindings } from '../lib/findings';
+import { blockingFindings, cleanableFindings, distinctRuleIds } from '../lib/findings';
 import { BatchExitCards } from './journey/BatchExitCards';
 import { DispositionWorkspace } from './journey/DispositionWorkspace';
 import { ExitCards } from './journey/ExitCards';
@@ -85,6 +85,14 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
   const allSigned = states.every((s) => s.signed);
   // ④ gates on the WHOLE queue being signed (for N=1, allSigned === current signed).
   const maxEnterable: JourneyStep = allSigned ? 4 : cleared ? 3 : 2;
+
+  // Triage + clean derivations (single source: `cleanableFindings`).
+  const pendingPerItem = states.map((s) => s.report.gate.blockingPending + s.report.gate.nonTextPending);
+  const currentCleanable = cleanableFindings(cur.report).length;
+  const queueCleanableCount = states.reduce(
+    (n, s) => (s.signed ? n : n + cleanableFindings(s.report).length),
+    0,
+  );
 
   // Clamp back if a re-lock/void/queue-switch removed access to a later step.
   useEffect(() => {
@@ -209,6 +217,69 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
     }
   };
 
+  // ---- One-click clean (no-pressure donation) --------------------------------
+  // Replace every cleanable hit (pending + blocking + NON-meta) in a session, by
+  // rule. Meta/engine hits (ruleset-compile-error / redos-guard) and non-text items
+  // are deliberately NOT auto-disposed — an engine degradation or an image must be
+  // seen by a human. The cleanable count (the affordance) and this action share
+  // `cleanableFindings`, so they can never drift.
+  const runClean = async (item: ItemState): Promise<SanitizationReport | null> => {
+    const ruleIds = distinctRuleIds(cleanableFindings(item.report));
+    if (ruleIds.length === 0) return null;
+    let latest = item.report;
+    for (const ruleId of ruleIds) {
+      const { report: next } = await client.batch(item.reviewId, 'rule', ruleId, 'replace');
+      latest = next;
+    }
+    return latest;
+  };
+
+  const applyCleaned = (reviewId: string, latest: SanitizationReport): void => {
+    // Same discipline as runMutation: drop the signature on a re-lock, never revive.
+    setStates((prev) =>
+      prev.map((s) =>
+        s.reviewId === reviewId
+          ? { ...s, report: latest, signed: latest.gate.unlocked ? s.signed : false }
+          : s,
+      ),
+    );
+    setTouched(true);
+  };
+
+  /** Clean one session (signed sessions are skipped — no void-confirm is raised). */
+  const cleanSession = async (idx: number): Promise<void> => {
+    const item = states[idx];
+    if (item.signed) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const latest = await runClean(item);
+      if (latest) applyCleaned(item.reviewId, latest);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Clean every UNSIGNED session sequentially; failures accumulate but never stop the loop. */
+  const cleanQueue = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    const failures: string[] = [];
+    for (const item of states) {
+      if (item.signed) continue;
+      try {
+        const latest = await runClean(item);
+        if (latest) applyCleaned(item.reviewId, latest);
+      } catch (e) {
+        failures.push(`${item.reviewId}: ${String(e)}`);
+      }
+    }
+    setBusy(false);
+    if (failures.length > 0) setError(`部分会话清洗失败：${failures.join('；')}`);
+  };
+
   // Leaving the journey with signed/in-progress work → confirm first (Open Q2).
   const requestRestart = (): void => {
     if (!onRestart) return;
@@ -216,11 +287,8 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
     else onRestart();
   };
 
+  // The Stepper only navigates ②③④ (① is non-interactive; 换会话 lives in the header).
   const navigate = (n: JourneyStep): void => {
-    if (n === 1) {
-      requestRestart();
-      return;
-    }
     if (n <= maxEnterable) setActiveStep(n);
   };
 
@@ -245,7 +313,7 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
             data-testid="restart"
           >
             <ArrowLeft className="h-4 w-4" strokeWidth={1.5} />
-            pick another session
+            换会话
           </button>
         )}
       </header>
@@ -255,7 +323,11 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
           items={items}
           current={current}
           signed={states.map((s) => s.signed)}
+          pending={pendingPerItem}
           onSelect={selectItem}
+          queueCleanableCount={queueCleanableCount}
+          onCleanQueue={() => void cleanQueue()}
+          busy={busy}
         />
       )}
 
@@ -265,23 +337,9 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
         signed={allSigned}
         completed={completed}
         pending={pending}
+        maxEnterable={maxEnterable}
+        onNavigate={navigate}
       />
-
-      {/* Steps are clickable to navigate (enterable ones only); ① restarts. */}
-      <nav className="flex gap-1 text-xs" data-testid="step-nav">
-        {([1, 2, 3, 4] as JourneyStep[]).map((n) => (
-          <button
-            key={n}
-            type="button"
-            onClick={() => navigate(n)}
-            disabled={n !== 1 && n > maxEnterable}
-            data-testid={`goto-step-${n}`}
-            className="rounded px-2 py-1 text-text-muted enabled:hover:text-foreground disabled:opacity-40"
-          >
-            {n === 1 ? '① 换会话' : n === 2 ? '② 处置' : n === 3 ? '③ 签署' : '④ 出口'}
-          </button>
-        ))}
-      </nav>
 
       <WarningsBanner warnings={cur.warnings} />
 
@@ -304,6 +362,10 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
             onNonText={onNonText}
             busy={busy}
             focusRuleId={focusRuleId}
+            cleanableCount={currentCleanable}
+            onCleanAll={() => void cleanSession(current)}
+            cleared={cleared}
+            onProceedToSign={() => setActiveStep(3)}
           />
         )}
         {currentStep === 3 && <SigningCard report={report} onSign={onSign} />}
