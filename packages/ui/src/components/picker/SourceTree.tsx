@@ -53,7 +53,7 @@ export function SourceTree({
 }: SourceTreeProps): JSX.Element {
   return (
     <div
-      className="flex w-72 shrink-0 flex-col rounded-lg border border-border bg-surface-1"
+      className="flex min-h-0 w-72 shrink-0 flex-col self-stretch rounded-lg border border-border bg-surface-1"
       data-testid="source-tree"
     >
       {/* Tree top: the whitelist opt-in + its defense copy. */}

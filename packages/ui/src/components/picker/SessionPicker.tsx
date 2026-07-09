@@ -158,10 +158,13 @@ export function SessionPicker({ client, onQueueCreated }: SessionPickerProps): J
   const creating = progress !== null;
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-4" data-testid="session-picker">
-      <h1 className="text-2xl font-semibold">选择要审阅的会话</h1>
+    // Single-page layout: the picker fills the shell's height; the tree and the
+    // card grid each keep their own scrollbar (min-h-0 lets the flex row shrink),
+    // and the selection bar below the row sits at a fixed bottom position.
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col gap-4" data-testid="session-picker">
+      <h1 className="shrink-0 text-2xl font-semibold">选择要审阅的会话</h1>
 
-      <div className="flex min-h-[24rem] gap-4">
+      <div className="flex min-h-0 flex-1 gap-4">
         <SourceTree
           sources={sources}
           expanded={expanded}

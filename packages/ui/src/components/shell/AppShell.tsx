@@ -19,8 +19,10 @@ interface AppShellProps {
 export function AppShell({ client, children }: AppShellProps): JSX.Element {
   const [view, setView] = useState<ShellView>('contribute');
 
+  // h-screen (not min-h-): main gets a bounded height so views can pin their own
+  // internal scroll areas (the picker's two panes); long views scroll inside main.
   return (
-    <div className="flex min-h-screen bg-background text-foreground">
+    <div className="flex h-screen bg-background text-foreground">
       <NavRail client={client} activeView={view} onNavigate={setView} />
       <main className="min-w-0 flex-1 overflow-y-auto p-6" data-testid="shell-content">
         {view === 'contribute' ? children : <SettingsPage client={client} />}
