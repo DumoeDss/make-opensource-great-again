@@ -28,11 +28,13 @@
       "pipeline": "small-feature",
       "prereqs": ["mosga-v04-batch-publish-core"],
       "mode": "serial",
-      "status": "pending"
+      "status": "done",
+      "ship": "aed06f1",
+      "archivedPath": "rasen/changes/archive/2026-07-09-mosga-v04-batch-exits-ui"
     }
   ],
-  "frontier": ["mosga-v04-batch-exits-ui"],
-  "portfolioComplete": false,
+  "frontier": [],
+  "portfolioComplete": true,
   "userDecisions": {
     "scope": "session picker redesign (elftia-style tree + card grid + multi-select) + queue journey + batch exits (2026-07-09)",
     "batchSemantics": "queue + batch exit: ②③ per-session (signing is per-session by design), ④ unified batch exits — exit-1 merges N records into one branch/PR, exit-2 batch-submits per-record with aggregate estimate (user choice, 2026-07-09)",
@@ -41,7 +43,10 @@
   },
   "notes": "Strict serial chain. CLI is the rasen fork (node <rasen.js path>). Do NOT touch rasen/changes/codex-session-reader/ (someone else's in-flight change). Do NOT modify archived artifacts.",
   "humanFollowUps": [
-    "切片1 accepted-known：M2 已签项切回无显式已签提示；M3 title-hover 与 BatchExitSummary 下载/409 分支缺断言（可随切片3补）；M4 N=1 touched 后 restart 弹确认（有意）；M5 过渡态 .jsonl 文件名（切片3替换）",
-    "GUI 冒烟测试仍未做（v03 遗留 + 本轮新选择页/队列旅程）"
+    "GUI 冒烟测试（v03 遗留 + 本轮全部新面：树形选择页多选、队列旅程、批量出口① 对真实 data-repo、批量出口② 直投）——npm run build && npx mosga ui --data-repo <path>",
+    "历史归属备注：切片3 的 client 批量表面（ui api/types+client 追加）被并行会话 ship e2358b2 意外卷入先行落地，内容已评审核对正确，未重写历史",
+    "切片1 accepted-known 残留：M2 已签项切回无显式已签提示（QueueBar chip 承载）；M4 N=1 touched 后 restart 弹确认（Open Q2 有意）",
+    "切片2/3 informational：批量 plan 遇未 stamp 会话抛 ExportError 不聚合（正常流程不可达，generic error 兜底）；N=1 跨路由重复 stage 会 500 而非 branch_exists（UI 不可达）",
+    "设计文档 Open Questions 仍开放：HF 组织/数据仓库命名 + 数据集许可证（出口① 真实可用前提）；Tauri 壳仍未重建（daemon serve 新 UI 构建产物即可）"
   ]
 }

@@ -84,17 +84,3 @@ The journey container SHALL hold the review queue with per-item client-side sign
 - **WHEN** the user chooses to leave the journey (换会话) while queue items are signed or in progress
 - **THEN** a confirm dialog warns that the queue's progress is discarded before returning to the picker
 
-### Requirement: Transitional batch exit summary
-
-While the batch exits are not yet wired (later slices), a queue of more than one signed session SHALL land on a transitional exit page: a summary list of the signed sessions, a per-item sanitized-file download (the existing gated export), and clearly disabled placeholder cards for the batch exits. A length-1 queue SHALL render the existing dual exit cards unchanged.
-
-#### Scenario: Single-session queue keeps the dual exit cards
-
-- **WHEN** a length-1 queue reaches step ④
-- **THEN** the existing dual exit cards (出口①/出口② + secondary export) render exactly as before
-
-#### Scenario: Multi-session queue shows the transitional summary
-
-- **WHEN** a queue with N>1 signed sessions reaches step ④
-- **THEN** the UI lists the signed sessions with per-item sanitized-file downloads and shows disabled batch-exit placeholder cards
-
