@@ -427,7 +427,7 @@ _Prepared ${now} by @mosga/publisher._
 // Helpers
 // ---------------------------------------------------------------------------
 
-function writeRepoFile(repo: string, relativePath: string, contents: string): string {
+export function writeRepoFile(repo: string, relativePath: string, contents: string): string {
   // relativePath uses posix separators (a git path); join maps to the platform.
   const abs = join(repo, ...relativePath.split('/'));
   mkdirSync(dirname(abs), { recursive: true });
@@ -436,6 +436,6 @@ function writeRepoFile(repo: string, relativePath: string, contents: string): st
 }
 
 /** Single-quote a string for a POSIX shell (the manual commands are documentation). */
-function shellQuote(value: string): string {
+export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }

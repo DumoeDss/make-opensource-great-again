@@ -47,6 +47,15 @@ export {
   submitContributionAsync,
 } from './pr.js';
 
+export {
+  type BatchContributionPlan,
+  type BatchStageResult,
+  BatchPublishRefusedError,
+  planBatchContributionAsync,
+  stageBatchContributionAsync,
+  submitBatchContributionAsync,
+} from './batch.js';
+
 export { loadTrustedCustomRules } from './config.js';
 
 export {

@@ -14,21 +14,59 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 
-import { applyDispositions } from '@mosga/sanitizer';
+import { applyDispositions, type Finding } from '@mosga/sanitizer';
 import {
   type AsyncCommandRunner,
+  type BatchContributionPlan,
   type ContributionPlan,
+  BatchPublishRefusedError,
   PublishRefusedError,
   ghAuthenticatedAsync,
   isGhAvailableAsync,
   isGitAvailableAsync,
+  planBatchContributionAsync,
   planContributionAsync,
+  stageBatchContributionAsync,
   stageContributionAsync,
+  submitBatchContributionAsync,
   submitContributionAsync,
 } from '@mosga/publisher';
+import { z } from 'zod';
 
 import type { HandlerResult, Route } from './http.js';
 import type { ReviewStore } from './reviews.js';
+
+/** Batch publish request body: 1–20 reviewIds (deduped downstream). */
+const BatchReviewIdsBody = z.object({ reviewIds: z.array(z.string()).min(1).max(20) });
+
+/** Rule-aggregated blocking counts — never the raw matched values (leak guard). */
+function aggregateBlockingByRule(findings: Finding[]): Array<{ ruleId: string; count: number }> {
+  const byRule = new Map<string, number>();
+  for (const f of findings) byRule.set(f.ruleId, (byRule.get(f.ruleId) ?? 0) + 1);
+  return [...byRule.entries()].map(([ruleId, count]) => ({ ruleId, count }));
+}
+
+/** Dedupe reviewIds preserving first-seen order. */
+function dedupeReviewIds(ids: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of ids) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  return out;
+}
+
+/**
+ * Stage-state key for a batch: the sorted deduped reviewIds joined with `,`. For
+ * N=1 the key IS the reviewId, so a batch of one deliberately SHARES stage state
+ * (and thus the deterministic branch/residue semantics) with the per-review route.
+ */
+function batchKeyOf(dedupedIds: string[]): string {
+  return [...dedupedIds].sort().join(',');
+}
 
 export interface PublishDeps {
   store: ReviewStore;
@@ -186,19 +224,105 @@ export function createPublishRoutes(deps: PublishDeps): Route[] {
     } catch (err) {
       if (err instanceof PublishRefusedError) {
         // Rule-aggregated counts ONLY — never the raw matched values.
-        const byRule = new Map<string, number>();
-        for (const f of err.blockingFindings) byRule.set(f.ruleId, (byRule.get(f.ruleId) ?? 0) + 1);
-        const blockingByRule = [...byRule.entries()].map(([ruleId, count]) => ({ ruleId, count }));
         return {
           ok: false,
           result: pubError(422, 'precheck_refused', {
             error: 'publication refused: the pre-check found surviving blocking findings',
-            blockingByRule,
+            blockingByRule: aggregateBlockingByRule(err.blockingFindings),
           }),
         };
       }
       throw err;
     }
+  }
+
+  /**
+   * Stamp every review in a batch, mirroring `stampedSessionFor`. The FIRST
+   * failure returns immediately with the offending `reviewId` merged into the
+   * error json (unknown → 404, locked gate → 409 `GATE_LOCKED` + gate).
+   */
+  function stampedBatch(reviewIds: string[]):
+    | { ok: true; items: Array<{ reviewId: string; session: import('@mosga/contracts').SanitizedSession }> }
+    | { ok: false; result: HandlerResult } {
+    const items: Array<{ reviewId: string; session: import('@mosga/contracts').SanitizedSession }> = [];
+    for (const reviewId of reviewIds) {
+      const stamped = stampedSessionFor(reviewId);
+      if (!stamped.ok) {
+        return {
+          ok: false,
+          result: {
+            status: stamped.result.status,
+            json: { ...(stamped.result.json as Record<string, unknown>), reviewId },
+          },
+        };
+      }
+      items.push({ reviewId, session: stamped.session });
+    }
+    return { ok: true, items };
+  }
+
+  /** Batch plan (export + aggregated MANDATORY pre-check), mapping refusals to 422. */
+  async function computeBatchPlan(
+    items: Array<{ reviewId: string; session: import('@mosga/contracts').SanitizedSession }>,
+  ): Promise<{ ok: true; plan: BatchContributionPlan } | { ok: false; result: HandlerResult }> {
+    try {
+      const plan = await planBatchContributionAsync(
+        items.map((i) => i.session),
+        {
+          targetRepo: deps.dataRepoPath as string,
+          ruleset: deps.getRuleset(),
+          asyncRunner: runner,
+          now: deps.now,
+          generatedAt: deps.now,
+        },
+      );
+      return { ok: true, plan };
+    } catch (err) {
+      if (err instanceof BatchPublishRefusedError) {
+        // Per refused session: its reviewId + rule-aggregated counts (no raw values).
+        const reviewIdBySession = new Map(items.map((i) => [i.session.session.sessionId, i.reviewId]));
+        const blockingBySession = err.refusals.map((r) => ({
+          reviewId: reviewIdBySession.get(r.sessionId),
+          sessionId: r.sessionId,
+          blockingByRule: aggregateBlockingByRule(r.blockingFindings),
+        }));
+        return {
+          ok: false,
+          result: pubError(422, 'precheck_refused', {
+            error: 'batch publication refused: the pre-check found surviving blocking findings',
+            blockingBySession,
+          }),
+        };
+      }
+      throw err;
+    }
+  }
+
+  /** The UI-safe subset of a batch plan: per-record metadata + totals, record bytes EXCLUDED. */
+  function uiSafeBatchPlan(plan: BatchContributionPlan, compareUrl: string | null): Record<string, unknown> {
+    const records = plan.records.map((record) => ({
+      sessionId: record.session.session.sessionId,
+      recordPath: record.recordPath,
+      provenancePath: record.provenancePath,
+      recordBytes: Buffer.byteLength(record.fileContents, 'utf-8'),
+      contentHash: createHash('sha256').update(record.fileContents, 'utf-8').digest('hex'),
+      messages: record.session.messages.length,
+    }));
+    return {
+      branch: plan.branch,
+      targetBranch: plan.targetBranch,
+      prTitle: plan.prTitle,
+      prBody: plan.prBody,
+      commitMessage: plan.commitMessage,
+      recordCount: plan.recordCount,
+      ghAvailable: plan.ghAvailable,
+      stagedFiles: plan.stagedFiles,
+      commands: plan.commands,
+      engine: plan.engine,
+      compareUrl,
+      totalRecordBytes: records.reduce((n, r) => n + r.recordBytes, 0),
+      records,
+    };
   }
 
   const routes: Route[] = [
@@ -319,6 +443,113 @@ export function createPublishRoutes(deps: PublishDeps): Route[] {
         }
       },
     },
+
+    // ---- Batch publish (出口① for N sessions as one branch/commit/PR) --------
+
+    {
+      method: 'POST',
+      pattern: '/api/publish/batch/plan',
+      handler: async ({ body }) => {
+        // Size/shape validation runs before ANY review or git work.
+        const parsed = BatchReviewIdsBody.safeParse(body);
+        if (!parsed.success) return { status: 400, json: { error: parsed.error.message } };
+        const reviewIds = dedupeReviewIds(parsed.data.reviewIds);
+        // Plan is read-only (no disk write, no git mutation) → not mutexed.
+        if (!dataRepoConfigured()) return pubError(409, 'data_repo_unconfigured');
+        const batch = stampedBatch(reviewIds);
+        if (!batch.ok) return batch.result;
+        if (!(await isGitAvailableAsync(runner))) return pubError(409, 'git_unavailable');
+        const planned = await computeBatchPlan(batch.items);
+        if (!planned.ok) return planned.result;
+        const compareUrl = await deriveCompareUrl(planned.plan.targetBranch, planned.plan.branch);
+        return { status: 200, json: uiSafeBatchPlan(planned.plan, compareUrl) };
+      },
+    },
+
+    {
+      method: 'POST',
+      pattern: '/api/publish/batch/stage',
+      handler: async ({ body }) => {
+        const parsed = BatchReviewIdsBody.safeParse(body);
+        if (!parsed.success) return { status: 400, json: { error: parsed.error.message } };
+        const reviewIds = dedupeReviewIds(parsed.data.reviewIds);
+        if (publishInFlight) return pubError(409, 'publish_in_flight');
+        publishInFlight = true;
+        try {
+          const staged = await runBatchStage(reviewIds);
+          return staged.result;
+        } finally {
+          publishInFlight = false;
+        }
+      },
+    },
+
+    {
+      method: 'POST',
+      pattern: '/api/publish/batch/submit',
+      handler: async ({ body }) => {
+        const parsed = BatchReviewIdsBody.safeParse(body);
+        if (!parsed.success) return { status: 400, json: { error: parsed.error.message } };
+        const reviewIds = dedupeReviewIds(parsed.data.reviewIds);
+        if (publishInFlight) return pubError(409, 'publish_in_flight');
+        publishInFlight = true;
+        try {
+          const batchKey = batchKeyOf(reviewIds);
+          const existing = stageState.get(batchKey);
+          let plan: BatchContributionPlan;
+          if (existing?.staged) {
+            // Already staged by us — recompute the (deterministic) plan for the push.
+            if (!dataRepoConfigured()) return pubError(409, 'data_repo_unconfigured');
+            const batch = stampedBatch(reviewIds);
+            if (!batch.ok) return batch.result;
+            if (!(await isGitAvailableAsync(runner))) return pubError(409, 'git_unavailable');
+            const planned = await computeBatchPlan(batch.items);
+            if (!planned.ok) return planned.result;
+            plan = planned.plan;
+          } else {
+            const staged = await runBatchStage(reviewIds);
+            if (!staged.ok) return staged.result;
+            plan = staged.plan;
+          }
+
+          if (!(await ghAuthenticatedAsync(runner))) {
+            return pubError(409, 'gh_unauthenticated', {
+              error: 'gh is not authenticated; run `gh auth login`, or use the manual push + compare-URL path',
+            });
+          }
+          const result = await submitBatchContributionAsync(plan, {
+            targetRepo: deps.dataRepoPath as string,
+            asyncRunner: runner,
+          });
+          if (result.pushRejected) {
+            return pubError(409, 'push_rejected', {
+              error: 'the remote rejected the push; pull/rebase the base branch and retry',
+            });
+          }
+          if (!result.opened) {
+            return { status: 500, json: { error: 'gh pr create failed', code: 'submit_failed' } };
+          }
+          const compareUrl = await deriveCompareUrl(plan.targetBranch, plan.branch);
+          return {
+            status: 200,
+            json: {
+              opened: true,
+              branch: plan.branch,
+              receipt: {
+                branch: plan.branch,
+                targetBranch: plan.targetBranch,
+                prTitle: plan.prTitle,
+                compareUrl,
+                submittedAt: deps.now ?? new Date().toISOString(),
+                recordCount: plan.recordCount,
+              },
+            },
+          };
+        } finally {
+          publishInFlight = false;
+        }
+      },
+    },
   ];
 
   /**
@@ -378,6 +609,73 @@ export function createPublishRoutes(deps: PublishDeps): Route[] {
           branch: plan.branch,
           stagedFiles: plan.stagedFiles,
           recordPath: plan.recordPath,
+        },
+      },
+    };
+  }
+
+  /**
+   * Shared batch stage sequence (assumes the caller holds the mutex). Same check
+   * order as the single `runStage`: dataRepo → git → per-review gate → repoClean →
+   * batch plan/precheck → batch-branch collision → write+commit. Stage state is
+   * keyed by the sorted deduped reviewIds. Returns the plan so `submit` can reuse it.
+   */
+  async function runBatchStage(
+    reviewIds: string[],
+  ): Promise<
+    | { ok: true; plan: BatchContributionPlan; result: HandlerResult }
+    | { ok: false; result: HandlerResult }
+  > {
+    if (!dataRepoConfigured()) return { ok: false, result: pubError(409, 'data_repo_unconfigured') };
+    if (!(await isGitAvailableAsync(runner))) return { ok: false, result: pubError(409, 'git_unavailable') };
+    const batch = stampedBatch(reviewIds);
+    if (!batch.ok) return { ok: false, result: batch.result };
+    if (!(await isRepoClean())) {
+      return {
+        ok: false,
+        result: pubError(409, 'repo_dirty', {
+          error: 'the data-repo working tree is not clean; commit, stash, or clean it, then retry',
+        }),
+      };
+    }
+    const planned = await computeBatchPlan(batch.items);
+    if (!planned.ok) return { ok: false, result: planned.result };
+    const plan = planned.plan;
+    const batchKey = batchKeyOf(reviewIds);
+
+    // A fresh stage hitting the existing deterministic batch branch is stale residue
+    // from a prior attempt (identical keyed-residue semantics as the single route).
+    if (!stageState.get(batchKey)?.staged && (await branchExists(plan.branch))) {
+      return {
+        ok: false,
+        result: pubError(409, 'branch_exists', {
+          error: `the contribution branch "${plan.branch}" already exists; delete it to retry, or continue it manually`,
+          branch: plan.branch,
+        }),
+      };
+    }
+
+    const stageResult = await stageBatchContributionAsync(plan, {
+      targetRepo: deps.dataRepoPath as string,
+      asyncRunner: runner,
+    });
+    if (!stageResult.committed) {
+      return {
+        ok: false,
+        result: { status: 500, json: { error: 'staging commit failed', code: 'stage_failed', log: stageResult.log } },
+      };
+    }
+    stageState.set(batchKey, { staged: true, branch: plan.branch });
+    return {
+      ok: true,
+      plan,
+      result: {
+        status: 200,
+        json: {
+          staged: true,
+          branch: plan.branch,
+          stagedFiles: plan.stagedFiles,
+          recordCount: plan.recordCount,
         },
       },
     };
