@@ -1,0 +1,84 @@
+{
+  "pipeline": "small-feature",
+  "classification": "small-feature",
+  "tier": "A",
+  "task": "扩展 session-readers 支持 codex 等 code CLI 的数据读取（参考 elftia codexAdapter）",
+  "userDecisions": {
+    "gates": "user pre-authorized continuous run — gates reported, not blocked on ('在worktree中新开分支，全权由你推进，不用gate', 2026-07-09)",
+    "worktree": "E:/AI/ChatAI/Agents/VibeCodingProjects/make-deepseek-great-again/.claude/worktrees/codex-session-reader, branch worktree-codex-session-reader (base origin/main)"
+  },
+  "stages": {
+    "propose": {
+      "status": "done",
+      "worker": {
+        "role": "planner",
+        "agentName": "planner-codex-reader",
+        "transcript": "C:/Users/Sayo/.claude/projects/E--AI-ChatAI-Agents-VibeCodingProjects-make-deepseek-great-again--claude-worktrees-codex-session-reader/19cc7403-0e48-4c48-94df-374bfc8248d3/subagents/agent-aplanner-codex-reader-ea10bf4923ce29c6.jsonl"
+      },
+      "validation": "strict-valid"
+    },
+    "apply": {
+      "status": "done",
+      "worker": {
+        "role": "implementer",
+        "agentName": "implementer-codex-reader",
+        "transcript": "C:/Users/Sayo/.claude/projects/E--AI-ChatAI-Agents-VibeCodingProjects-make-deepseek-great-again--claude-worktrees-codex-session-reader/19cc7403-0e48-4c48-94df-374bfc8248d3/subagents/agent-aimplementer-codex-reader-d06c8d24ef5e895a.jsonl"
+      },
+      "result": "20/20 tasks; typecheck+build clean; vitest 235 passed (219 prior +16 new); strict valid; uncommitted in worktree",
+      "deviations": [
+        "non-text marker stamps raw part type 'input_image' (design D1 authoritative over task 6.2 prose 'image')",
+        "image-only user turn emitted with empty content + marker (superset-safe vs elftia text-gated emit)"
+      ]
+    },
+    "verify": {
+      "status": "done",
+      "worker": {
+        "role": "reviewer",
+        "agentName": "reviewer-codex-reader",
+        "transcript": "C:/Users/Sayo/.claude/projects/E--AI-ChatAI-Agents-VibeCodingProjects-make-deepseek-great-again--claude-worktrees-codex-session-reader/19cc7403-0e48-4c48-94df-374bfc8248d3/subagents/agent-areviewer-codex-reader-339bda722dc714ee.jsonl"
+      },
+      "verdict": "FINDINGS: 0 Blocker, 2 Major (M1 provenance sourceCli hardcoded claude-code; M2 scaffolding-skip drops image marker), 3 Minor (m3 unknown-role unmarked, m4 typeless part dropped, m5 test gaps), 1 Trivial (t6 helper dup, accepted)"
+    },
+    "review-loop": {
+      "status": "in_progress",
+      "leadDecisions": [
+        "M1 is design-level (crosses design Non-Goals): FIX PROPERLY, not gate-out — add 'codex' to contracts SOURCE_CLI_VALUES and derive buildEnvelope sourceCli from ref.sourceId; user intent is codex export, mislabeled provenance unacceptable",
+        "M2/m3/m4 marker hardening + m5 test gaps routed to the same independent fixer (non-author); t6 accepted-known"
+      ],
+      "round1": {
+        "fixer": {
+          "role": "fixer",
+          "agentName": "fixer-codex-reader",
+          "transcript": "C:/Users/Sayo/.claude/projects/E--AI-ChatAI-Agents-VibeCodingProjects-make-deepseek-great-again--claude-worktrees-codex-session-reader/19cc7403-0e48-4c48-94df-374bfc8248d3/subagents/agent-afixer-codex-reader-72412430f2d9bafe.jsonl",
+          "note": "fixer went idle twice without a DONE report; LEAD verified fixes from disk: M1 (contracts enum + buildEnvelope derives sourceCli + envelope.test.ts + design amendment), M2 (collect-before-skip), m3, m4, m5 tests; typecheck clean, vitest 245/245, strict valid"
+        },
+        "reReview": "CLEAN — all findings RESOLVED, non-author confirmed (reviewer-codex-reader, warm delta re-review); review-report.md has '## Round 1 re-review'"
+      }
+    },
+    "ship": {
+      "status": "done",
+      "worker": {
+        "role": "shipper",
+        "agentName": "shipper-codex-reader"
+      },
+      "result": "ship commit 9820a56 + ship-log 42ac104, pushed origin/worktree-codex-session-reader; typecheck/build clean, vitest 245/245, strict valid"
+    },
+    "archive": {
+      "status": "done",
+      "worker": {
+        "role": "shipper",
+        "agentName": "shipper-codex-reader"
+      },
+      "result": "archive commit 5781dd8, spec delta applied (+2 added, ~1 modified), pushed"
+    }
+  },
+  "rounds": 1,
+  "openFindings": [],
+  "acceptedKnown": [
+    "t6: scaffolding/text helper duplication across codexRollout.ts and codexAdapter.ts (deliberate util-cap split)",
+    "trivial forward note: buildEnvelope fails closed (throws) on a sourceId missing from SOURCE_CLI_VALUES — future adapter onboarding must extend the enum (unreachable today; intended)"
+  ],
+  "processNotes": [
+    "review-report.md was initially written to the main checkout by the reviewer (stale cwd); LEAD moved it into the archived change dir post-archive"
+  ]
+}

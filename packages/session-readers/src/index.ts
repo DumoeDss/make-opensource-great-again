@@ -1,14 +1,16 @@
-// Adapter interface + registry + the Claude Code adapter.
+// Adapter interface + registry + the Claude Code and Codex adapters.
 export type { CliSourceAdapter } from './adapter/types.js';
 export { claudeCodeAdapter, extractClaudeTitle } from './adapter/claudeCodeAdapter.js';
+export { codexAdapter, parseCodexSessionMeta } from './adapter/codexAdapter.js';
 export {
   getAdapter,
   listAdapters,
   registerAdapter,
 } from './adapter/registry.js';
 
-// Non-text-marker parse wrapper.
+// Non-text-marker parse paths.
 export { parseClaudeSession } from './parseClaudeSession.js';
+export { parseCodexSession } from './parseCodexSession.js';
 
 // Cross-platform Claude Code project-path encoder.
 export { encodeProjectPath } from './claudeProjectsPaths.js';

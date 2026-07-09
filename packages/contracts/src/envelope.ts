@@ -4,10 +4,10 @@ import { ParsedMessageSchema } from './message.js';
 
 /**
  * Known `meta.sourceCli` values. Extensible by APPENDING (design D7): adding a
- * value (e.g. `"codex"`, `"cursor"`) widens the accepted set — a non-breaking,
- * additive change for consumers. v0.1 ships only `claude-code`.
+ * value (e.g. `"cursor"`) widens the accepted set — a non-breaking, additive
+ * change for consumers. Each value equals the corresponding adapter's source id.
  */
-export const SOURCE_CLI_VALUES = ['claude-code'] as const;
+export const SOURCE_CLI_VALUES = ['claude-code', 'codex'] as const;
 export const SourceCliSchema = z.enum(SOURCE_CLI_VALUES);
 export type SourceCli = z.infer<typeof SourceCliSchema>;
 
