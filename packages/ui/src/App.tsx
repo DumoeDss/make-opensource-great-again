@@ -14,7 +14,7 @@ export function App({ client = apiClient }: AppProps): JSX.Element {
   const [review, setReview] = useState<CreateReviewResponse | null>(null);
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6 text-gray-900">
+    <div className="min-h-screen bg-background p-6 text-foreground">
       {review ? (
         <ReviewView
           client={client}

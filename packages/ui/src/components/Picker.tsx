@@ -7,6 +7,7 @@ import type {
   SessionRef,
   SourceRef,
 } from '../api/types';
+import { Badge } from './ui/badge';
 
 interface PickerProps {
   client: ApiClient;
@@ -75,17 +76,17 @@ export function Picker({ client, onReviewCreated }: PickerProps): JSX.Element {
     <div className="mx-auto max-w-3xl space-y-6" data-testid="picker">
       <h1 className="text-2xl font-semibold">Select a session to review</h1>
       {error && (
-        <div className="rounded border border-red-300 bg-red-50 p-2 text-sm text-red-800">
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive">
           {error}
         </div>
       )}
 
       <section className="space-y-2">
-        <h2 className="text-sm font-medium text-gray-600">1 · Source</h2>
+        <h2 className="text-sm font-medium text-text-muted">1 · Source</h2>
         <select
           value={sourceId}
           onChange={(e) => setSourceId(e.target.value)}
-          className="rounded border border-gray-300 px-2 py-1"
+          className="rounded-md border border-input bg-surface-1 px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           data-testid="source-select"
         >
           {sources.map((s) => (
@@ -98,51 +99,50 @@ export function Picker({ client, onReviewCreated }: PickerProps): JSX.Element {
 
       <section className="space-y-2">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium text-gray-600">2 · Project</h2>
+          <h2 className="text-sm font-medium text-text-muted">2 · Project</h2>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
               checked={showAll}
               onChange={(e) => setShowAll(e.target.checked)}
               data-testid="show-all-toggle"
+              className="accent-primary"
             />
             show all projects ({projectCounts.recommended} recommended / {projectCounts.total} total)
           </label>
         </div>
         {!showAll && (
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-text-subtle">
             Showing only projects with a public git remote (recommended). Private/unpushed
             projects are hidden until you opt in.
           </p>
         )}
-        <ul className="divide-y rounded border border-gray-200" data-testid="project-list">
+        <ul className="divide-y divide-border rounded-md border border-border" data-testid="project-list">
           {projects.map((p) => (
             <li key={p.key}>
               <button
                 type="button"
                 onClick={() => setProjectKey(p.key)}
                 data-testid={`project-${p.key}`}
-                className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50 ${
-                  projectKey === p.key ? 'bg-indigo-50' : ''
+                className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-surface-2 ${
+                  projectKey === p.key ? 'bg-primary-soft/40' : ''
                 }`}
               >
                 <span>
                   <b>{p.label}</b>
-                  <span className="ml-2 text-xs text-gray-500">{p.cwd ?? p.key}</span>
+                  <span className="ml-2 text-xs text-text-subtle">{p.cwd ?? p.key}</span>
                 </span>
-                <span
-                  className={`rounded px-2 py-0.5 text-xs ${
-                    p.recommended ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
-                  }`}
+                <Badge
+                  variant={p.recommended ? 'success' : 'secondary'}
                   title={p.recommendReason}
                 >
                   {p.recommended ? 'recommended' : 'not recommended'}
-                </span>
+                </Badge>
               </button>
             </li>
           ))}
           {projects.length === 0 && (
-            <li className="px-3 py-4 text-center text-sm text-gray-500">
+            <li className="px-3 py-4 text-center text-sm text-text-subtle">
               No projects to show{showAll ? '.' : ' — try "show all projects".'}
             </li>
           )}
@@ -151,8 +151,8 @@ export function Picker({ client, onReviewCreated }: PickerProps): JSX.Element {
 
       {projectKey && (
         <section className="space-y-2">
-          <h2 className="text-sm font-medium text-gray-600">3 · Session</h2>
-          <ul className="divide-y rounded border border-gray-200" data-testid="session-list">
+          <h2 className="text-sm font-medium text-text-muted">3 · Session</h2>
+          <ul className="divide-y divide-border rounded-md border border-border" data-testid="session-list">
             {sessions.map((s) => (
               <li key={s.id}>
                 <button
@@ -160,20 +160,20 @@ export function Picker({ client, onReviewCreated }: PickerProps): JSX.Element {
                   disabled={creating}
                   onClick={() => startReview(s.id)}
                   data-testid={`session-${s.id}`}
-                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-50"
+                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-surface-2 disabled:opacity-50"
                 >
                   <span>{s.title ?? s.id}</span>
-                  <span className="text-xs text-gray-500">
+                  <span className="text-xs text-text-subtle">
                     {new Date(s.updatedAt).toLocaleString()}
                   </span>
                 </button>
               </li>
             ))}
             {sessions.length === 0 && (
-              <li className="px-3 py-4 text-center text-sm text-gray-500">No sessions.</li>
+              <li className="px-3 py-4 text-center text-sm text-text-subtle">No sessions.</li>
             )}
           </ul>
-          {creating && <p className="text-sm text-gray-500">Scanning session…</p>}
+          {creating && <p className="text-sm text-text-subtle">Scanning session…</p>}
         </section>
       )}
     </div>

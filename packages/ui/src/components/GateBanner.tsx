@@ -1,4 +1,7 @@
+import { Lock, Unlock } from 'lucide-react';
+
 import type { SanitizationReport } from '../api/types';
+import { Button } from './ui/button';
 
 /** The signed confirmation summary the reviewer must affirm to unlock export. */
 export const SIGNED_SUMMARY = '命中项已全部处置 + 含图记录已逐条确认 + 抽检通过';
@@ -28,17 +31,32 @@ export function GateBanner({
 
   return (
     <div
-      className={`rounded-lg border p-4 ${
+      className={`rounded-lg border p-4 text-foreground ${
         locked
-          ? 'border-red-300 bg-red-50 text-red-900'
-          : 'border-green-300 bg-green-50 text-green-900'
+          ? 'border-destructive/50 bg-destructive/10'
+          : 'border-success/50 bg-success/15'
       }`}
       data-testid="gate-banner"
     >
       <div className="flex items-center justify-between gap-4">
         <div>
-          <div className="font-semibold" data-testid="gate-status">
-            {locked ? '🔒 未清零不解锁 — Gate locked' : '🔓 Gate unlocked'}
+          <div
+            className={`flex items-center gap-1.5 font-semibold ${
+              locked ? 'text-destructive' : 'text-success'
+            }`}
+            data-testid="gate-status"
+          >
+            {locked ? (
+              <>
+                <Lock className="h-4 w-4" strokeWidth={1.5} />
+                未清零不解锁 — Gate locked
+              </>
+            ) : (
+              <>
+                <Unlock className="h-4 w-4" strokeWidth={1.5} />
+                Gate unlocked
+              </>
+            )}
           </div>
           <div className="mt-1 text-sm">
             Blocking pending: <b data-testid="blocking-pending">{gate.blockingPending}</b> /{' '}
@@ -46,17 +64,15 @@ export function GateBanner({
             <b data-testid="nontext-pending">{gate.nonTextPending}</b>
           </div>
         </div>
-        <button
+        <Button
           type="button"
           onClick={onExport}
           disabled={!canExport}
           data-testid="export-button"
-          className={`rounded-md px-4 py-2 text-sm font-medium text-white ${
-            canExport ? 'bg-green-600 hover:bg-green-700' : 'cursor-not-allowed bg-gray-400'
-          }`}
+          size="lg"
         >
           {exporting ? 'Exporting…' : 'Export sanitized session'}
-        </button>
+        </Button>
       </div>
 
       <label className="mt-3 flex items-start gap-2 text-sm">
@@ -66,12 +82,12 @@ export function GateBanner({
           disabled={locked}
           onChange={(e) => onSignedChange(e.target.checked)}
           data-testid="sign-checkbox"
-          className="mt-0.5"
+          className="mt-0.5 accent-primary"
         />
         <span>
           我确认：<b>{SIGNED_SUMMARY}</b>
           {locked && (
-            <span className="ml-1 text-red-700">
+            <span className="ml-1 text-destructive">
               （处置所有阻断项与含图记录后方可签署）
             </span>
           )}

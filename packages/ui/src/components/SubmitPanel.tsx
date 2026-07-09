@@ -8,6 +8,10 @@ import type {
   SubmissionReceipt,
   SubmitEstimate,
 } from '../api/types';
+import { Button } from './ui/button';
+
+const SELECT_CLASS =
+  'ml-2 rounded-md border border-input bg-surface-1 px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring';
 
 const CONSENT_VERSION = '0.2.0';
 
@@ -108,7 +112,7 @@ export function SubmitPanel({ client, reviewId, gate }: SubmitPanelProps): JSX.E
     <div className="space-y-4" data-testid="submit-panel">
       {!gate.unlocked && (
         <div
-          className="rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-800"
+          className="rounded-md border border-warning/50 bg-warning/10 p-2 text-sm text-foreground"
           data-testid="submit-gate-locked"
         >
           The review gate is locked. Disposition all blocking + non-text items before submitting.
@@ -119,7 +123,7 @@ export function SubmitPanel({ client, reviewId, gate }: SubmitPanelProps): JSX.E
         <label className="text-sm">
           Provider
           <select
-            className="ml-2 rounded border border-gray-300 px-2 py-1"
+            className={SELECT_CLASS}
             data-testid="submit-provider"
             value={providerId}
             onChange={(e) => {
@@ -141,7 +145,7 @@ export function SubmitPanel({ client, reviewId, gate }: SubmitPanelProps): JSX.E
         <label className="text-sm">
           Model
           <select
-            className="ml-2 rounded border border-gray-300 px-2 py-1"
+            className={SELECT_CLASS}
             data-testid="submit-model"
             value={model}
             onChange={(e) => {
@@ -160,7 +164,7 @@ export function SubmitPanel({ client, reviewId, gate }: SubmitPanelProps): JSX.E
         <label className="text-sm">
           Mode
           <select
-            className="ml-2 rounded border border-gray-300 px-2 py-1"
+            className={SELECT_CLASS}
             data-testid="submit-mode"
             value={replayMode}
             onChange={(e) => {
@@ -173,32 +177,32 @@ export function SubmitPanel({ client, reviewId, gate }: SubmitPanelProps): JSX.E
           </select>
         </label>
 
-        <button
+        <Button
           type="button"
           onClick={() => void onEstimate()}
           disabled={busy || !providerId || !model}
-          className="rounded bg-gray-800 px-3 py-1 text-sm text-white disabled:opacity-50"
+          variant="secondary"
           data-testid="submit-estimate-btn"
         >
           Estimate cost
-        </button>
+        </Button>
       </div>
 
       {estimate && (
-        <div className="rounded border border-gray-200 bg-gray-50 p-3 text-sm" data-testid="submit-estimate">
+        <div className="rounded-md border border-border bg-surface-1 p-3 text-sm" data-testid="submit-estimate">
           <div className="flex flex-wrap gap-4">
             <span>tokens: {estimate.totalTokens.toLocaleString()}</span>
             <span>requests: {estimate.requestCount}</span>
             <span>est. cost: ~${estimate.estimatedCostUsd.toFixed(4)}</span>
           </div>
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-text-subtle">
             Token count is authoritative; cost is approximate and provider pricing may differ
             {estimate.pricingSource === 'default' ? ' (generic default pricing — no provider-specific rate)' : ''}.
           </p>
         </div>
       )}
 
-      <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+      <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-foreground">
         <p className="font-medium">Before you submit, understand:</p>
         <label className="mt-2 flex items-start gap-2">
           <input
@@ -206,6 +210,7 @@ export function SubmitPanel({ client, reviewId, gate }: SubmitPanelProps): JSX.E
             checked={ackTos}
             onChange={(e) => setAckTos(e.target.checked)}
             data-testid="ack-tos"
+            className="mt-0.5 accent-primary"
           />
           <span>
             I understand that sending this session to a third-party provider may be subject to that
@@ -218,6 +223,7 @@ export function SubmitPanel({ client, reviewId, gate }: SubmitPanelProps): JSX.E
             checked={ackRetention}
             onChange={(e) => setAckRetention(e.target.checked)}
             data-testid="ack-retention"
+            className="mt-0.5 accent-primary"
           />
           <span>
             I understand the FULL session — including my assistant messages — is sent (replay
@@ -226,28 +232,28 @@ export function SubmitPanel({ client, reviewId, gate }: SubmitPanelProps): JSX.E
         </label>
       </div>
 
-      <button
+      <Button
         type="button"
         onClick={() => void onSubmit()}
         disabled={!canSubmit}
-        className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+        size="lg"
         data-testid="submit-confirm"
       >
         Confirm &amp; submit (出口②)
-      </button>
+      </Button>
 
       {error && (
-        <div className="rounded border border-red-300 bg-red-50 p-2 text-sm text-red-800" data-testid="submit-error">
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive" data-testid="submit-error">
           {error}
         </div>
       )}
 
       {receipt && (
         <div data-testid="submit-receipt">
-          <p className="mb-1 text-sm font-medium text-green-800">
+          <p className="mb-1 text-sm font-medium text-success">
             Submitted to {receipt.targetProviderId} / {receipt.targetModel} — backstop passed.
           </p>
-          <pre className="max-h-72 overflow-auto rounded bg-gray-900 p-3 text-xs text-gray-100">
+          <pre className="max-h-72 overflow-auto rounded-md bg-surface-2 p-3 font-mono text-xs text-text-muted">
             {JSON.stringify(receipt, null, 2)}
           </pre>
         </div>

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 
 import type { Disposition, Finding } from '../api/types';
 import { describeLocation, distinctRuleIds, isMetaFinding } from '../lib/findings';
+import { Button } from './ui/button';
 
 interface FindingsTableProps {
   /** Blocking findings only (secrets + custom + engine/meta). */
@@ -32,39 +33,33 @@ function DispositionButtons({
   // A meta finding has no editable text — only acknowledge (allow) clears it.
   if (isMetaFinding(finding)) {
     return (
-      <button
+      <Button
         type="button"
         disabled={busy}
         onClick={() => onDisposition(finding.id, 'allow')}
         data-testid={`ack-${finding.id}`}
-        className={`rounded px-2 py-1 text-xs font-medium ${
-          finding.disposition === 'allow'
-            ? 'bg-blue-600 text-white'
-            : 'border border-blue-400 text-blue-700 hover:bg-blue-50'
-        }`}
+        size="xs"
+        variant={finding.disposition === 'allow' ? 'default' : 'outline'}
       >
         {finding.disposition === 'allow' ? 'acknowledged' : 'acknowledge (reviewed)'}
-      </button>
+      </Button>
     );
   }
   const options: Disposition[] = ['replace', 'delete', 'allow'];
   return (
     <div className="flex gap-1">
       {options.map((opt) => (
-        <button
+        <Button
           key={opt}
           type="button"
           disabled={busy}
           onClick={() => onDisposition(finding.id, opt)}
           data-testid={`disp-${finding.id}-${opt}`}
-          className={`rounded px-2 py-1 text-xs ${
-            finding.disposition === opt
-              ? 'bg-gray-800 text-white'
-              : 'border border-gray-300 text-gray-700 hover:bg-gray-100'
-          }`}
+          size="xs"
+          variant={finding.disposition === opt ? 'default' : 'outline'}
         >
           {DISPOSITION_LABEL[opt]}
-        </button>
+        </Button>
       ))}
     </div>
   );
@@ -104,7 +99,7 @@ export function FindingsTable({
               setLayerFilter(e.target.value as 'all' | Finding['layer']);
               setPage(0);
             }}
-            className="rounded border border-gray-300 px-2 py-1 text-sm"
+            className="rounded-md border border-input bg-surface-1 px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             data-testid="layer-filter"
           >
             <option value="all">all</option>
@@ -112,7 +107,7 @@ export function FindingsTable({
             <option value="custom">custom (L2)</option>
           </select>
         </label>
-        <span className="text-sm text-gray-500">
+        <span className="text-sm text-text-subtle">
           {filtered.length} blocking finding{filtered.length === 1 ? '' : 's'}
         </span>
       </div>
@@ -120,23 +115,24 @@ export function FindingsTable({
       {ruleIds.length > 0 && (
         <div className="mb-3 flex flex-wrap gap-2" data-testid="batch-by-rule">
           {ruleIds.map((ruleId) => (
-            <button
+            <Button
               key={ruleId}
               type="button"
               disabled={busy}
               onClick={() => onBatchByRule(ruleId, 'replace')}
               data-testid={`batch-rule-${ruleId}`}
-              className="rounded border border-indigo-300 bg-indigo-50 px-2 py-1 text-xs text-indigo-800 hover:bg-indigo-100"
+              size="xs"
+              variant="subtle"
             >
               batch replace all “{ruleId}”
-            </button>
+            </Button>
           ))}
         </div>
       )}
 
-      <div className="overflow-x-auto rounded border border-gray-200">
+      <div className="overflow-x-auto rounded-md border border-border">
         <table className="min-w-full text-left text-sm">
-          <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+          <thead className="bg-surface-2 text-xs uppercase text-text-subtle">
             <tr>
               <th className="px-3 py-2">Layer</th>
               <th className="px-3 py-2">Rule</th>
@@ -147,14 +143,14 @@ export function FindingsTable({
           </thead>
           <tbody>
             {shown.map((f) => (
-              <tr key={f.id} className="border-t border-gray-100" data-testid={`finding-row-${f.id}`}>
+              <tr key={f.id} className="border-t border-border" data-testid={`finding-row-${f.id}`}>
                 <td className="px-3 py-2 align-top">{f.layer}</td>
                 <td className="px-3 py-2 align-top font-mono text-xs">{f.ruleId}</td>
-                <td className="px-3 py-2 align-top font-mono text-xs text-gray-600">
+                <td className="px-3 py-2 align-top font-mono text-xs text-text-muted">
                   {describeLocation(f)}
                 </td>
                 <td className="px-3 py-2 align-top">
-                  <code className="break-all text-xs">{f.matchPreview}</code>
+                  <code className="break-all font-mono text-xs">{f.matchPreview}</code>
                 </td>
                 <td className="px-3 py-2 align-top">
                   <DispositionButtons finding={f} onDisposition={onDisposition} busy={busy} />
@@ -163,7 +159,7 @@ export function FindingsTable({
             ))}
             {shown.length === 0 && (
               <tr>
-                <td className="px-3 py-4 text-center text-gray-500" colSpan={5}>
+                <td className="px-3 py-4 text-center text-text-subtle" colSpan={5}>
                   No blocking findings.
                 </td>
               </tr>
@@ -174,25 +170,27 @@ export function FindingsTable({
 
       {pageCount > 1 && (
         <div className="mt-2 flex items-center gap-2 text-sm">
-          <button
+          <Button
             type="button"
             onClick={() => setPage((p) => Math.max(0, p - 1))}
             disabled={clampedPage === 0}
-            className="rounded border px-2 py-1 disabled:opacity-50"
+            size="sm"
+            variant="outline"
           >
             Prev
-          </button>
+          </Button>
           <span>
             Page {clampedPage + 1} / {pageCount}
           </span>
-          <button
+          <Button
             type="button"
             onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
             disabled={clampedPage >= pageCount - 1}
-            className="rounded border px-2 py-1 disabled:opacity-50"
+            size="sm"
+            variant="outline"
           >
             Next
-          </button>
+          </Button>
         </div>
       )}
     </div>

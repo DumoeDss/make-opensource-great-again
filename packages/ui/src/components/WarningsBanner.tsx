@@ -1,3 +1,5 @@
+import { AlertTriangle } from 'lucide-react';
+
 import type { RulesetWarning } from '../api/types';
 
 interface WarningsBannerProps {
@@ -13,17 +15,18 @@ export function WarningsBanner({ warnings }: WarningsBannerProps): JSX.Element |
   if (warnings.length === 0) return null;
   return (
     <div
-      className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+      className="rounded-lg border border-warning/50 bg-warning/10 p-3 text-sm text-foreground"
       data-testid="warnings-banner"
     >
-      <div className="font-semibold">
-        ⚠ {warnings.length} ruleset warning{warnings.length === 1 ? '' : 's'}
+      <div className="flex items-center gap-1.5 font-semibold text-warning">
+        <AlertTriangle className="h-4 w-4" strokeWidth={1.5} />
+        {warnings.length} ruleset warning{warnings.length === 1 ? '' : 's'}
       </div>
       <ul className="mt-1 list-disc pl-5">
         {warnings.map((w) => (
           <li key={w.ruleId}>
             <code>{w.ruleId}</code> — {w.reason}{' '}
-            <span className="text-amber-700">
+            <span className="text-text-muted">
               (degraded to {w.degradedTo === 'keyword' ? 'keyword matcher' : 'unrunnable'})
             </span>
           </li>

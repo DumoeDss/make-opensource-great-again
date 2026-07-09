@@ -1,4 +1,5 @@
 import type { SanitizedSession } from '../api/types';
+import { Badge } from './ui/badge';
 
 interface ExportPreviewProps {
   session: SanitizedSession | null;
@@ -11,7 +12,7 @@ interface ExportPreviewProps {
 export function ExportPreview({ session }: ExportPreviewProps): JSX.Element {
   if (!session) {
     return (
-      <p className="text-sm text-gray-500" data-testid="export-empty">
+      <p className="text-sm text-text-subtle" data-testid="export-empty">
         Unlock the gate and export to preview the stamped sanitized session here.
       </p>
     );
@@ -19,17 +20,13 @@ export function ExportPreview({ session }: ExportPreviewProps): JSX.Element {
   return (
     <div data-testid="export-preview">
       <div className="mb-2 flex flex-wrap gap-3 text-sm">
-        <span className="rounded bg-green-100 px-2 py-0.5 text-green-800">
-          sanitized: {String(session.meta.sanitized)}
-        </span>
-        <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-700">
+        <Badge variant="success">sanitized: {String(session.meta.sanitized)}</Badge>
+        <Badge variant="secondary">
           ruleset: {session.meta.sanitizationRulesetVersion ?? '—'}
-        </span>
-        <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-700">
-          contributor: {session.meta.contributorAlias}
-        </span>
+        </Badge>
+        <Badge variant="secondary">contributor: {session.meta.contributorAlias}</Badge>
       </div>
-      <pre className="max-h-[28rem] overflow-auto rounded bg-gray-900 p-3 text-xs text-gray-100">
+      <pre className="max-h-[28rem] overflow-auto rounded-md bg-surface-2 p-3 font-mono text-xs text-text-muted">
         {JSON.stringify(session, null, 2)}
       </pre>
     </div>

@@ -1,4 +1,8 @@
+import { AlertTriangle } from 'lucide-react';
+
 import type { Finding, NonTextDisposition, NonTextItem } from '../api/types';
+import { Badge } from './ui/badge';
+import { Button } from './ui/button';
 
 interface NonTextListProps {
   items: NonTextItem[];
@@ -21,7 +25,7 @@ export function NonTextList({
   busy,
 }: NonTextListProps): JSX.Element {
   if (items.length === 0) {
-    return <p className="text-sm text-gray-500">No non-text content in this session.</p>;
+    return <p className="text-sm text-text-subtle">No non-text content in this session.</p>;
   }
   return (
     <ul className="space-y-2" data-testid="nontext-list">
@@ -30,54 +34,42 @@ export function NonTextList({
         return (
           <li
             key={item.messageUuid}
-            className="rounded border border-gray-200 p-3"
+            className="rounded-md border border-border bg-surface-1 p-3"
             data-testid={`nontext-${item.messageUuid}`}
           >
             <div className="flex items-center justify-between gap-3">
               <div className="text-sm">
-                <span className="mr-2">⚠</span>
+                <AlertTriangle className="mr-2 inline h-4 w-4 text-warning" strokeWidth={1.5} />
                 <b>{item.blockTypes.join(', ')}</b>{' '}
-                <span className="text-gray-500">at message[{item.messageIndex}]</span>
+                <span className="text-text-subtle">at message[{item.messageIndex}]</span>
                 {context && (
-                  <div className="mt-1 max-w-xl truncate text-xs text-gray-500">“{context}”</div>
+                  <div className="mt-1 max-w-xl truncate text-xs text-text-subtle">“{context}”</div>
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <span
-                  className={`rounded px-2 py-0.5 text-xs ${
-                    item.disposition === 'pending'
-                      ? 'bg-red-100 text-red-700'
-                      : 'bg-green-100 text-green-700'
-                  }`}
-                >
+                <Badge variant={item.disposition === 'pending' ? 'destructive' : 'success'}>
                   {item.disposition}
-                </span>
-                <button
+                </Badge>
+                <Button
                   type="button"
                   disabled={busy}
                   onClick={() => onDisposition(item.messageUuid, 'keep')}
                   data-testid={`nontext-keep-${item.messageUuid}`}
-                  className={`rounded px-2 py-1 text-xs ${
-                    item.disposition === 'keep'
-                      ? 'bg-green-600 text-white'
-                      : 'border border-green-400 text-green-700 hover:bg-green-50'
-                  }`}
+                  size="xs"
+                  variant={item.disposition === 'keep' ? 'default' : 'outline'}
                 >
                   confirm (keep)
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   disabled={busy}
                   onClick={() => onDisposition(item.messageUuid, 'remove')}
                   data-testid={`nontext-remove-${item.messageUuid}`}
-                  className={`rounded px-2 py-1 text-xs ${
-                    item.disposition === 'remove'
-                      ? 'bg-gray-800 text-white'
-                      : 'border border-gray-300 text-gray-700 hover:bg-gray-100'
-                  }`}
+                  size="xs"
+                  variant={item.disposition === 'remove' ? 'default' : 'outline'}
                 >
                   exclude (remove)
-                </button>
+                </Button>
               </div>
             </div>
           </li>

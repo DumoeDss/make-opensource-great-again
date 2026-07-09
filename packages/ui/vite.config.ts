@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
@@ -6,6 +8,13 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   base: '/ui/',
   plugins: [react()],
+  resolve: {
+    // `@` → this package's `src`, matching the ported omnicross primitives'
+    // `@/...` imports. Wired identically in tsconfig.json + the root vitest.config.ts.
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,

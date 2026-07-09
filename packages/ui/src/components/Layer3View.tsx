@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 
 import type { Disposition, NormalizationCategory, SanitizationReport } from '../api/types';
 import { describeLocation } from '../lib/findings';
+import { Button } from './ui/button';
 
 interface Layer3ViewProps {
   report: SanitizationReport;
@@ -34,37 +35,39 @@ export function Layer3View({ report, onBatchByType, busy }: Layer3ViewProps): JS
   }, [l3, categories]);
 
   if (report.layerSummary.normalization.total === 0) {
-    return <p className="text-sm text-gray-500">No Layer-3 normalization findings.</p>;
+    return <p className="text-sm text-text-subtle">No Layer-3 normalization findings.</p>;
   }
 
   return (
     <div className="space-y-4" data-testid="l3-view">
-      <p className="text-sm text-gray-600">
+      <p className="text-sm text-text-muted">
         Layer 3 is statistics + spot-check — it does not block export. Batch-replace a whole
         category, or sample individual hits below.
       </p>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {categories.map((cat) => (
-          <div key={cat} className="rounded border border-gray-200 p-3">
+          <div key={cat} className="rounded-md border border-border bg-surface-1 p-3">
             <div className="flex items-center justify-between">
               <span className="font-medium">{cat}</span>
               <span className="text-lg font-semibold" data-testid={`l3-count-${cat}`}>
                 {byCategory[cat]}
               </span>
             </div>
-            <button
+            <Button
               type="button"
               disabled={busy}
               onClick={() => onBatchByType(cat as NormalizationCategory, 'replace')}
               data-testid={`l3-batch-${cat}`}
-              className="mt-2 w-full rounded border border-indigo-300 bg-indigo-50 px-2 py-1 text-xs text-indigo-800 hover:bg-indigo-100"
+              size="xs"
+              variant="subtle"
+              className="mt-2 w-full"
             >
               batch replace all {cat}
-            </button>
+            </Button>
             <ul className="mt-2 space-y-1">
               {samples[cat]?.map((f) => (
-                <li key={f.id} className="truncate text-xs text-gray-500" title={describeLocation(f)}>
-                  <code>{f.matchPreview}</code> → {f.replacementSuggestion}
+                <li key={f.id} className="truncate text-xs text-text-subtle" title={describeLocation(f)}>
+                  <code className="font-mono">{f.matchPreview}</code> → {f.replacementSuggestion}
                 </li>
               ))}
             </ul>

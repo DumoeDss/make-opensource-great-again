@@ -15,6 +15,9 @@ export default defineConfig({
       '@mosga/session-readers': src('session-readers'),
       '@mosga/sanitizer': src('sanitizer'),
       '@mosga/direct-submit': src('direct-submit'),
+      // `@` → @mosga/ui's src, matching the ported omnicross primitives' `@/...`
+      // imports. No other package imports `@/`, so this mapping is inert for them.
+      '@': fileURLToPath(new URL('./packages/ui/src', import.meta.url)),
     },
   },
   test: {
