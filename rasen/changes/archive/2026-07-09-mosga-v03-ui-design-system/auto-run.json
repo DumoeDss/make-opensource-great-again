@@ -32,15 +32,25 @@
       "note": "0 rounds needed — verify verdict CLEAN, no Blocker/Major"
     },
     "ship": {
-      "status": "in_progress",
+      "status": "done",
       "worker": {
         "role": "shipper",
         "agentName": "shipper-s1",
         "model": "sonnet"
-      }
+      },
+      "commits": [
+        "b88811e",
+        "49e430d",
+        "0cf2350"
+      ],
+      "note": "pushed origin main, 189 tests green pre-flight"
     },
     "archive": {
-      "status": "pending"
+      "status": "in_progress",
+      "worker": {
+        "role": "shipper",
+        "agentName": "shipper-s1"
+      }
     }
   },
   "rounds": 0,
