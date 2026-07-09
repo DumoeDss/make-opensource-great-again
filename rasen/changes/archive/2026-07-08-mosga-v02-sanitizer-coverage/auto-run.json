@@ -1,0 +1,16 @@
+{
+  "pipeline": "small-feature",
+  "classification": "small-feature",
+  "tier": "A",
+  "parent": "mosga-v02",
+  "stages": {
+    "propose": { "status": "done", "worker": { "role": "planner", "agentName": "planner-v02" }, "note": "validated --strict clean; findings appended to parent planning-context.md" },
+    "apply": { "status": "done", "worker": { "role": "implementer", "agentName": "impl-v02-s1" }, "note": "all 9 task sections ticked; LEAD independently verified typecheck green + 155/155 tests (was 143)" },
+    "verify": { "status": "done", "worker": { "role": "reviewer", "agentName": "rev-v02-s1" }, "note": "CLEAN: 0B/0M/0m, 2 Trivial informational; review-report.md written" },
+    "review-loop": { "status": "done", "note": "0 rounds needed — verify came back CLEAN; 2 Trivial accepted-known (projectKey decodes untruncated full [unreachable >200k for real paths]; L3 over provenance units by design)" },
+    "ship": { "status": "done", "worker": { "role": "shipper", "agentName": "ship-v02-s1" }, "note": "commit c834905 + ship-log 191788b pushed to origin/main; all pre-flight gates green" },
+    "archive": { "status": "done", "worker": { "role": "shipper", "agentName": "ship-v02-s1", "continuation": "warm SendMessage @6% ctx" }, "note": "archive commit fdea46c + hash-record 720b06b pushed; specs synced (4 added, 1 modified), post-archive validate clean" }
+  },
+  "rounds": 0,
+  "openFindings": []
+}

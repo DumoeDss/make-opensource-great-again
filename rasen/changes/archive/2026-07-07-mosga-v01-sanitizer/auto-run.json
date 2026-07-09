@@ -1,0 +1,16 @@
+{
+  "pipeline": "small-feature",
+  "classification": "small-feature",
+  "tier": "A",
+  "parent": "mosga-v01",
+  "stages": {
+    "propose": { "status": "done", "worker": { "role": "planner", "agentId": "planner@session-30c62c24" }, "validation": "strict-pass" },
+    "apply": { "status": "done", "worker": { "role": "implementer", "agentId": "impl-sanitizer@session-30c62c24" }, "tasks": "34/34", "gates": "typecheck+build+vitest(64)+validate-strict all pass", "notes": ["gitleaks v8.18.4 vendored, 173 rules, conservation 30 native+143 translated+0 degraded", "documented MOSGA_ALLOWLIST_STOPWORDS augmentation (AWS docs example keys)", "ReDoS guard: 250ms/field + 200k cap -> blocking needs-review finding"] },
+    "verify": { "status": "done", "worker": { "role": "reviewer", "agentId": "reviewer-sanitizer@session-30c62c24" }, "verdict": "NEEDS-FIX", "findings": "1 Blocker (EMAIL_RE ReDoS + unbudgeted L3 loop), 3 Major (overlap replace leak, unguarded JSON.parse, silent regex-compile swallow), 4 Minor", "report": "review-report.md" },
+    "review-loop": { "status": "done", "rounds": 1, "outcome": "CLEAN (B1+M1+M2+M3+m2+m4 resolved non-author-confirmed; m1 withdrawn by reviewer; m3 accepted-known deferred to slice 4)", "acceptedKnown": ["R1 Minor: partial non-containment overlap leaves edit tail — future hardening: merge overlapping spans to union", "m3: serialized ruleset artifact deferred to slice-4 CI (pin exact @mosga/sanitizer version)"], "fixer": "impl-sanitizer", "reReviewer": "reviewer-sanitizer" },
+    "ship": { "status": "in_progress", "worker": { "role": "shipper", "agentId": "shipper-readers@session-30c62c24" } },
+    "archive": { "status": "pending" }
+  },
+  "rounds": 0,
+  "openFindings": []
+}

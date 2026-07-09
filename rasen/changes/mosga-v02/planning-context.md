@@ -1,0 +1,126 @@
+# mosga-v02 Planning Context（持久 planner 种子，LEAD 维护）
+
+> ⚠ 工具链：本项目 OpenSpec CLI 已改为本地 fork **rasen**。一切 `openspec <cmd>` 均替换为：
+> `node "E:\AI\ChatAI\Agents\VibeCodingProjects\workflow\Reference\OpenSpec-code\bin\rasen.js" <cmd>`
+> 禁止全局安装官方 @fission-ai/openspec（功能不一致）。
+
+## User intent（逐字要点，2026-07-09）
+
+用户选定 v0.2 范围 = **"两个都做"**：出口②（API 直投重放）在前，Tauri v2 桌面壳在后，串行推进。沿用 v0.1 预授权模式：gates 报告但不阻塞，连续推进到全部完成。
+
+**用户已拍板（勿再询问）——出口② ToS 合规策略（设计文档 Open Question #3）**：
+"知情同意 + 完整保留"——出口②保留完整会话（含 assistant 消息，重放必需），工具内明示 ToS 风险，用户知情确认后才能投递。此决策需落入 direct-submit 切片的 spec/design，并回写 `openspec/office-hours/agent-session-data-contribution.md` Open Questions #3（标注已决策 + 日期 2026-07-09）。
+
+## 背景（v0.1 已完成，全部归档）
+
+- 权威设计文档：`openspec/office-hours/agent-session-data-contribution.md`（Next Steps 7 = 出口②）。
+- v0.1 交接：`openspec/changes/mosga-v01/handoff/lead-1.md`；跨切片契约：`openspec/changes/mosga-v01/planning-context.md`（信封 schema、包接口、决策 D1-D5 全在这里，planner 必读）。
+- 现有 6 包：`@mosga/contracts` / `session-readers` / `sanitizer` / `daemon` / `ui` / `publisher`；npm workspaces + tsup + vitest（143 测试）；包间依赖写 `"*"`（npm 不支持 `workspace:*`）。
+- **禁止修改已归档的 v0.1 切片产物（openspec/changes/archive/**）；改代码走新变更正常改。**
+
+## Decompose 计划（严格串行，3 子变更）
+
+守恒策略与 v0.1 相同：相邻切片共享 monorepo config + `@mosga/contracts`，无正向独立性证明 → 全串行。
+
+1. **`mosga-v02-sanitizer-coverage`**（小，先做）
+   - Scope：扩宽 `packages/sanitizer/src/scan.ts` `collectScanUnits` 覆盖 `meta.*`、`schemaVersion`、`session.{sessionId,sourceId,projectKey,updatedAt}` 等当前不扫的信封字段 + 回归测试（fixture 在这些字段埋密钥，断言 finding 产出且 review-ui 数据流可见）。
+   - Why first：出口②是**新的数据出口**。出口①有 publisher 的原始字节兜底扫描堵死发布路径，出口②发送前也要有对等兜底（见切片 2），但人工门看不见这些字段的命中始终是缺口——在开新出口前先补上，安全叙事才自洽。
+   - 注意：化名/替换语义是否对这些字段生效需 planner 调查（projectKey/sessionId 可能需要哈希化名而非文本替换）；`sanitizerPackageVersion` 等 provenance 字段本身不应被误脱敏。
+2. **`mosga-v02-direct-submit`**（出口②主体）
+   - Task 1 硬性要求（设计文档 Next Steps 7）：**token 成本估算先行**——多轮重放成本随轮数近似平方增长，给出典型会话（按 v0.1 真实会话长度分布取样）在代表性厂商定价下的成本表，写入 design.md；若成本不可接受需给出截断/摘要策略选项再继续。
+   - 实现：新包（建议 `@mosga/direct-submit` 或 `@mosga/replayer`，planner 定名）复用 `@omnicross/core` ApiConverter（Anthropic↔OpenAI 含流式）+ `@omnicross/contracts` 31 provider 预设；脱敏会话直接 POST 目标厂商 `/v1/messages` 或转 OpenAI 格式打 `/chat/completions`；**不启动 code CLI**。
+   - 目标站点用户可自行添加，官方提供开源模型厂商预设（DeepSeek 等），全部用用户自己的 key（env/本地配置，key 永不入导出数据）。
+   - **知情同意门（用户已拍板）**：投递前工具内明示 ToS 风险 + 完整保留语义，用户确认后才发送；确认记录落 provenance。
+   - **发送前兜底**：对等复刻 publisher 的原始字节兜底扫描（`packages/publisher/src/precheck.ts` 的 `scanRawBytesBackstop` 模式）——出口②发送的每个字节同样过兜底，Layer 1/2 命中即阻断。
+   - meta 消息：重放时附带的贡献元信息消息（设计文档腹稿），格式 planner 定义进 contracts。
+   - 回写设计文档 Open Questions #3 决策标注。
+3. **`mosga-v02-tauri-shell`**（桌面壳）
+   - Scope：Tauri v2 壳包裹现有 `@mosga/daemon` + `@mosga/ui`，照搬 omnicross 的 **adopt-or-spawn daemon** 模式（复用源只读：`E:\AI\ChatAI\Agents\VibeCodingProjects\elftia\elftia\omnicross`，MIT）。
+   - 依赖切片 2：壳要包住含出口②投递 UI 的最终界面，且 daemon 端点集合在切片 2 后才稳定。
+   - 注意 Windows 构建链（Rust toolchain）可用性需 planner 先探测；不可用则该切片提前 escalate 而不是硬撞。
+
+## 复用源（只读参考）
+
+- omnicross：`E:\AI\ChatAI\Agents\VibeCodingProjects\elftia\elftia\omnicross`（MIT，npm 已发布，可直接依赖 npm 包 `@omnicross/core` / `@omnicross/contracts`——planner 核实 npm 包名与版本）。
+- elftia：`E:\AI\ChatAI\Agents\VibeCodingProjects\elftia\elftia\elftia`（GPLv3，v0.1 已完成需要的提取，v0.2 预计不再动它）。
+
+## Gotchas（继承自 v0.1，worker 必读）
+
+- npm 不支持 `workspace:*` → 包间依赖 `"*"`。
+- tsup 构建；per-package tsconfig 是 noEmit typecheck-only。
+- canary fixtures 与 vendor/gitleaks.toml 含故意的假密钥/规则正则，ship 时 secret scan 勿误报。
+- ReDoS 防护：sanitizer 有 250ms/字段 + 200k 上限；新增扫描字段同样过这层。
+- daemon 有状态：`applyDispositions` 依赖 scan 时同一 PseudonymMapper 实例（按 reviewId 内存持有）。
+- 上次 impl subagent 曾因 monthly spend limit 中断——worker 挂掉时 LEAD 接手补完 + 非作者复审。
+
+## Planner findings（planner 逐切片追加，durable 结论 only）
+
+### slice 1: sanitizer-coverage
+
+> 本切片提案已产出并通过 rasen validate（含 --strict）。产物：`openspec/changes/mosga-v02-sanitizer-coverage/{proposal,design,tasks}.md` + `specs/sanitization-scan/spec.md`(1 MODIFIED + 2 ADDED) + `specs/sanitization-apply/spec.md`(2 ADDED)。以下是 siblings 需知的固定结论。
+
+**根因/范围（已核实）**：`collectScanUnits`（`packages/sanitizer/src/scan.ts:45`）只扫 message 体 + `session.cwd/title`，漏 `schemaVersion`、`meta.*`、`session.{sessionId,sourceId,projectKey,updatedAt}`。该缺口已被 publisher 的 `scanRawBytesBackstop`（`packages/publisher/src/precheck.ts` 的 finding **B1**）在**发布路径**兜住，但人工 review gate（daemon `POST /api/reviews` → `scanSession` → UI 渲染 `report.findings`）看不见——出口②无兜底前必须先补人工门覆盖。
+
+**FindingField 契约扩展（additive，slice 2/3 需知）**：`FindingFieldSchema`（`schemas.ts`）新增 10 个 session-scope 值：`schemaVersion,metaContributorAlias,metaSourceCli,metaToolVersion,metaExportedAt,metaLicense,sessionId,sessionSourceId,sessionProjectKey,sessionUpdatedAt`。纯追加、非破坏；UI `describeLocation`（`packages/ui/src/lib/findings.ts:23`）已泛化处理 session scope（`session.<field>`），无需改 UI。`@mosga/ui`/`@mosga/publisher` 以 `import type` 拉入，additive 不破坏。
+
+**字段语义决策（design.md 权威表）**：
+- `session.projectKey` = 高风险（`encodeProjectPath` 把绝对路径非字母数字→`-`，内嵌 OS 用户名+项目目录名，如 `-Users-alice-acme`）。斜杠锚定的 L3 `PATH_RE/USERNAME_RE` 打不中破折号形式。→ **字段级**识别 encoded home-path slug（仅对 projectKey unit，绝不对任意正文），命中发一条 **non-blocking L3 `path`** finding 覆盖整 slug，用会话 mapper 的 `<PATH_n>`。**复用现有 `path` 分类，不新增 `NormalizationCategory`**（避免 enum 波及 UI/publisher）。与 cwd 完全对称。
+- `session.sessionId` = 低 PII（UUID）→ 仅 L1/L2 block-only，**不化名**（化名会破坏 publisher 确定性文件名 `data/…/<sessionId>.jsonl`，且 UUID 非 PII）。可写只为让"埋入的密钥"可被 replace。
+- provenance/tool-controlled（`schemaVersion,meta.sourceCli/toolVersion/exportedAt/license,session.sourceId`）= 扫（block-only 防御纵深）+ 可写（避免 no-op 泄漏），但**绝不自动改写**：仅在人工显式 replace/delete 真命中时才编辑，正常流零 finding→字节不变。
+- `meta.sanitizationRulesetVersion`+`meta.contributorAlias` = **stamp 权威写**（gate-unlock 时 apply 盖章），不算 sanitization，stamp 覆盖任何 disposition。
+- 非字符串跳过：`meta.sanitized`(bool)、`meta.sanitizationRulesetVersion`(scan 时 null)。`session.updatedAt`(number) 用 `String()` 强转扫（block-only），无 writer。
+
+**"不得脱敏"的 provenance（回答 LEAD 提问）**：`sanitizerPackageVersion` **不是** `SanitizedSession` 字段——它在 publisher `EngineInfo` stamp（`precheck.ts`），发布时从 `@mosga/sanitizer` package.json 取，本切片从不扫/改。安全因为它是社区 CI pin 的引擎身份，改它会破坏 parity。
+
+**关键不变式（勿反悔）**：(1) 不动 publisher 的 `scanRawBytesBackstop`——它仍是字节级最后防线，也是非字符串字段的唯一覆盖；(2) ReDoS 防护（250ms/字段 + 200k cap + `redos-guard` finding）对新字段**自动生效**，因走同一 per-`ScanUnit` 循环；(3) apply 可写但非自动改写——省掉了 UI 侧 acknowledge-only 改造（本可选，未做，留作 UI polish）。
+
+**slice 2（direct-submit）继承点**：出口②发送前的对等兜底应复刻 `scanRawBytesBackstop` 模式（字节级、无 allow 逃生口）；人工门覆盖已由本切片补齐，两出口共享同一 review gate 语义。
+
+### slice 2: direct-submit
+
+> 提案已产出并通过 rasen validate（--strict）。产物：`openspec/changes/mosga-v02-direct-submit/{proposal,design,tasks}.md` + `specs/direct-submit/spec.md`(新能力，7 ADDED) + `specs/review-daemon/spec.md`(3 ADDED 路由)。以下是 slice 3 及实现者需知的固定结论。
+
+**omnicross 复用面（已核实 npm 已发布）**：`@omnicross/core@^0.1.2` + `@omnicross/contracts@^0.1.2`（MIT，`publishConfig.access:public`，本地源 0.1.3 但 npm 上是 0.1.2 → pin `^0.1.2`）。
+- `@omnicross/core` 桶导出 ApiConverter：`convertAnthropicRequestToOpenAI`/`convertAnthropicStreamToOpenAI`/`convertOpenAIResponseToAnthropic` 等（`src/api-converter/`）。出口② openai 格式厂商用它转。
+- `@omnicross/contracts` 导出 `LLM_PROVIDER_PRESETS`/`getAllProviderPresets()`/`getPresetById(id)`/type `PresetProviderTemplate`。presets 目录 29 个 json（种子文档说 31，实测 29）。deepseek 预设：`apiFormat:"openai"`,`api_base_url:"https://api.deepseek.com/v1/chat/completions"`,`models:[deepseek-v4-flash/pro/chat/reasoner]`。preset 字段有 `apiFormat`/`apiType`/`api_base_url`/`models`。
+
+**包边界决策**：新包 `@mosga/direct-submit`（`packages/direct-submit/`，含 CLI bin）。deps: contracts+sanitizer(兜底用 compileRuleset/scanSession)+omnicross core/contracts+zod。库在包、daemon 编排、UI 加同意对话框——同 monorepo 形态。**首个对外发网络的包**。
+
+**daemon 挂载点（已核实）**：出口②在 gate-unlock 后接入。submit 路由复用 `applyDispositions(state.session,state.report,state.mapper)`（与 `POST /api/reviews/:id/export` `app.ts:317` 完全相同的 stamped 派生），锁定则 409。持有的 `PseudonymMapper` 保证 contributorAlias 与 export 路径一致。新增 3 路由：`GET /api/providers`、`POST /api/reviews/:id/submit/estimate`、`POST /api/reviews/:id/submit`。
+
+**成本模型（设计文档硬要求，已入 design.md）**：T 轮、每轮 s tokens。Mode A（逐轮重生成，faithful）input≈s·T²/2 = **O(T²)**；Mode B（单发全量摄取，含 meta 末轮）input≈T·s = **O(T)**，约 T/2 倍便宜。**推荐 Mode B 默认，Mode A opt-in**。代表性表（s≈1500,DeepSeek 类价，需实现时核实）：large(120 轮) Mode A ≈$3、Mode B ≈$0.055。**实现 Task 1 是 gating**：按真实 v0.1 会话长度取样量化，报出 go/no-go；不可接受则先定截断策略（滑窗/compact-summary 复用/单会话预算）。
+
+**格式转换 + 限制**：`SanitizedSession.messages` 与源 JSONL 同构 → `toAnthropicMessages(session)` 重建 Anthropic messages（text/thinking/`tool_use`←toolCalls/`tool_result`←toolResults），meta 作末轮 user turn 使请求 well-formed。openai 预设经 omnicross 转 OpenAI。**已知限制**：非文本字节 upstream 只标记不留存（slice-1 readers 事实），出口②重放仅 text+tool，meta 消息须披露。
+
+**兜底（继承 slice-1 不变式）**：新包内 `scanOutboundBytesBackstop(rawBytes,ruleset)` **复刻** `scanRawBytesBackstop` 模式（重叠窗口<200k、shared ruleset、synthetic session）。扫**确切出站字节**（转换后请求+meta），任一 L1/L2 命中硬拒、无 allow 逃生、独立于人工门。**绝不 import/改 `packages/publisher/src/precheck.ts`**（该函数也未被 publisher 导出，只能复刻）。~30 行重复；未来可上提 sanitizer，但那要改 precheck.ts，本 slice 禁止。
+
+**新 contracts schema**：`ContributionConsent`（consentVersion,tosRiskAcknowledged,fullRetentionAcknowledged,target{Provider,Model},replayMode,estimatedTokens,contentHash(sha256 绑定内容),confirmedAt——**无 key**）、`ContributionMeta`（kind='mosga-contribution-meta'+provenance+consent ack+note）、`SubmissionReceipt`（key-free receipt）。同意需两 ack 全真 + contentHash 匹配，否则 422 拒发；接受的同意入 provenance。
+
+**Key 处理**：用户自己的 key 从 env/可信本地配置服务端读（**绝不**请求体/客户端路径，同 daemon customRulesPath 信任模型），仅作出站 auth header，**绝不**入导出数据/meta/consent/receipt/log/任何 daemon 响应；测试断言之。
+
+**用户已决 ToS（勿再问）**：出口② = 知情同意 + 完整保留；实现 Task 12 回写 office-hours 文档 Open Q3（标记已决，2026-07-09）。
+
+**slice 3（tauri-shell）依赖**：daemon 端点集合在本切片后才稳定（新增 providers/estimate/submit + UI 同意对话框）；壳要包住含出口②投递 UI 的最终界面。
+
+### slice 3: tauri-shell
+
+> 提案已产出并通过 rasen validate（--strict）。产物：`openspec/changes/mosga-v02-tauri-shell/{proposal,design,tasks}.md` + `specs/desktop-shell/spec.md`(新能力,5 ADDED) + `specs/review-daemon/spec.md`(1 ADDED, `--no-open` CLI)。这是 v0.2 收尾切片。
+
+**工具链探测结果（LEAD 硬门，已过）：BUILDABLE，无需 escalate。** 本机：rustc/cargo 1.88.0、rustup 1.28.2、target `x86_64-pc-windows-msvc` 已装、MSVC linker **实测可用**（trivial `cargo build` 编译+链接成功；PATH 上的 `link.exe` 是 Git 的无关，cargo 经 vswhere 自寻 MSVC linker）、WebView2 运行时 134.0.3124.93 已装、Node v24.14.0。**唯一缺**：Tauri CLI（`@tauri-apps/cli`，普通 `npm i -D`，非阻塞）。
+
+**omnicross 复用参考（只读 MIT）**：`omnicross/apps/desktop/src-tauri/src/daemon_runtime.rs` 是 adopt-or-spawn 范本。关键可搬点：identity 探测分类（NoListener/Foreign/Daemon）、`.no_proxy()` 探测客户端（**load-bearing**，系统代理会 502 掉 loopback 探测使活 daemon 看似不存在）、spawn `node <entry> ... `（Windows `CREATE_NO_WINDOW`+stderr piped）、`strip_verbatim`（Windows `\\?\` 前缀 Node 会误判为 UNC → `EISDIR`）、只 tree-kill 自己 spawn 的 child、状态机经 `daemon_status` command 给前端轮询。omnicross 的 `frontendDist` = `packages/ui/dist`（打包全 UI，跨源调 daemon）。
+
+**mosga daemon 实况（已核实）**：bin `mosga`→`dist/cli.js`，命令 `mosga ui [--port N]`，默认端口 8899（`MOSGA_PORT` env / `--port`），loopback-only。**已有** trimmed adopt 协商（探 `/api/health` body `{name:'mosga-daemon',version}`，adopt-or-fail，无 spawn）。**痛点**：`mosga ui` 总是 `openBrowser` → 壳必须能不开浏览器启动。identity 在 **body 非 header**（无 pid）。
+
+**关键决策**：
+1. **唯一 daemon 改动 = `mosga ui --no-open`**（不调 openBrowser）。壳 spawn `node <cli> ui --no-open --port 8899`。identity 复用 body（不加 header，因下条策略不需 pid）。
+2. **adopt-or-spawn 策略（有意偏离 omnicross）**：daemon 有状态（内存 reviews + per-reviewId PseudonymMapper）+ 单用户 → **adopt 任意版本 mosga daemon（不 version-kill）**；**只 tree-kill 自己 spawn 的**；Foreign 占端口 → failed 明确原因（不 adopt 不 kill 不可识别进程）。理由：毁掉进行中的 review 状态比版本偏差更糟。无需 pid 握手。
+3. **webview 策略 = bundle 极小 splash 作 frontendDist，`running` 后导航主 webview 到 `http://127.0.0.1:8899/ui/`**（复用同源 SPA，**零 UI 改动、零 CORS、无重复资产管线**；UI 只 build 一次由 daemon serve，壳只 bundle 几 KB splash）。splash 解决启动 chicken-and-egg（daemon 起来前有状态可显）。**否决**：omnicross 式 bundle 全 UI + 跨源（需 UI 可配 API base + daemon 开 CORS，扩大 daemon 零-CORS 面）。
+4. **固定端口 8899**（匹配 daemon 默认；动态端口需 portfile 握手，单用户不值）。**关端口**：spawn 的关壳即 tree-kill（内存 review 丢失可接受，re-scan 确定性）；adopt 的永不 kill。
+5. **安全**：daemon 不变（loopback+Host allowlist+DNS-rebinding guard+无鉴权单用户）；CSP 仅 `self`+loopback daemon，无远程 host，无 `dangerousRemoteDomainIpcAccess`；壳零 key/secret 处理。
+
+**布局/CI**：新 `apps/desktop/`（不是 packages/，是 app）：`package.json`(private,devDep @tauri-apps/cli)+`splash/`+`src-tauri/`(Cargo.toml/tauri.conf.json/build.rs/src/{lib,daemon_runtime,kill}.rs)。root `workspaces` 加 `apps/*`（wire Tauri CLI）。**shell build 为 opt-in `build:shell`（`tauri build`），不入 root `build`/`typecheck`/`test`**（这些是显式 per-package `-w` 列表 + `vitest run`），故**无 Rust 的 CI 仍绿**。Rust 侧测试用 `cargo test`（非 vitest）。
+
+**可测性（本机）**：headless 可跑 `cargo test`（探测分类/命令解析/strip_verbatim）+ `cargo check`/`build`；`tauri build`(NSIS) 可能首跑下载 NSIS/WebView2 bootstrapper → attempt-and-report 非硬失败；**GUI 行为（启动/adopt/关闭杀 daemon/导航 /ui）需人工冒烟**（agent 无法验 GUI），tasks.md 有清单。
+
+**portfolio 收尾**：三切片提案全部产出并 strict-valid。串行依赖链：sanitizer-coverage（已 ship/archive）→ direct-submit（已 ship/archive）→ tauri-shell（本提案待实现）。

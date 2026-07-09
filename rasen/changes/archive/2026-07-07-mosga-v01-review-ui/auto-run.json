@@ -1,0 +1,16 @@
+{
+  "pipeline": "small-feature",
+  "classification": "small-feature",
+  "tier": "A",
+  "parent": "mosga-v01",
+  "stages": {
+    "propose": { "status": "done", "worker": { "role": "planner", "agentId": "planner@session-30c62c24" }, "validation": "strict-pass" },
+    "apply": { "status": "done", "worker": { "role": "implementer", "agentId": "impl-review-ui@session-30c62c24" }, "tasks": "35/35", "gates": "typecheck+build+vitest(93)+validate-strict all pass; manual /ui smoke documented" },
+    "verify": { "status": "done", "worker": { "role": "reviewer", "agentId": "reviewer-review-ui@session-30c62c24" }, "verdict": "NEEDS-FIX", "findings": "0 Blocker (GATE CLEAN, no bypass found), 1 Major (customRulesPath arbitrary file read + error echo leak), 3 Minor, 1 Trivial", "report": "review-report.md" },
+    "review-loop": { "status": "done", "rounds": 1, "outcome": "CLEAN (Major file-read closed by surface removal + 3 Minor fixed, non-author-confirmed; gate re-confirmed clean)", "acceptedKnown": ["preview correctness leans on meta-mask + hardcoded stamped:false rather than apply refusing to stamp — add a guard comment in future refactor (non-blocking)"], "contractDrift": "customRulesPath removed from create-review request body; planning-context.md create-review field note updated so slice 4 does not expect it", "fixer": "impl-review-ui", "reReviewer": "reviewer-review-ui" },
+    "ship": { "status": "in_progress", "worker": { "role": "shipper", "agentId": "shipper-readers@session-30c62c24" } },
+    "archive": { "status": "pending" }
+  },
+  "rounds": 0,
+  "openFindings": []
+}

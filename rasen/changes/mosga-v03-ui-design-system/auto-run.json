@@ -1,0 +1,53 @@
+{
+  "pipeline": "small-feature",
+  "classification": "small-feature",
+  "tier": "A",
+  "stages": {
+    "propose": {
+      "status": "done",
+      "worker": {
+        "role": "planner",
+        "agentName": "planner-v03"
+      },
+      "note": "4 artifacts, strict validate passed, decisions appended to planning-context.md"
+    },
+    "apply": {
+      "status": "done",
+      "worker": {
+        "role": "implementer",
+        "agentName": "implementer-s1"
+      },
+      "note": "27/27 tasks; typecheck+build+189 tests green, zero test edits; frozen contracts held"
+    },
+    "verify": {
+      "status": "done",
+      "worker": {
+        "role": "reviewer",
+        "agentName": "reviewer-s1"
+      },
+      "note": "CLEAN 0B/0M/1min/3triv; gates re-run green; review-report.md saved"
+    },
+    "review-loop": {
+      "status": "done",
+      "note": "0 rounds needed — verify verdict CLEAN, no Blocker/Major"
+    },
+    "ship": {
+      "status": "in_progress",
+      "worker": {
+        "role": "shipper",
+        "agentName": "shipper-s1",
+        "model": "sonnet"
+      }
+    },
+    "archive": {
+      "status": "pending"
+    }
+  },
+  "rounds": 0,
+  "openFindings": [],
+  "notes": "Gates pre-authorized by user (reported, not blocked). Root = rasen/. CLI = rasen fork via node path.",
+  "acceptedKnown": [
+    "Minor: Badge <div> nested in Picker <button> (invalid HTML content model, tolerated, no behavior impact) — consider Badge as-prop in slice 2",
+    "Trivial: pre-existing ⚠ in ReviewView tab label + NonTextList comment; deps resolve above stated minimums"
+  ]
+}

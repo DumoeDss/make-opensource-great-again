@@ -1,0 +1,40 @@
+{
+  "pipeline": "auto-decompose",
+  "classification": "portfolio",
+  "tier": "A",
+  "decompose": "taken",
+  "decomposeRationale": "Approved office-hours design (rasen/office-hours/frontend-ui-redesign.md, 9/10 after 3 adversarial review rounds) defines 3 independently-reviewable slices with an explicit dependency chain: design-system tokens (pure restyle, zero behavior) -> journey/IA restructure (depends on tokens) -> exit-1 HF publish wiring (daemon+UI, depends on journey shell for the exit-card slot). Combined diff would span design system + IA rewrite + new daemon routes — too large to review as one.",
+  "children": [
+    {
+      "id": "mosga-v03-ui-design-system",
+      "pipeline": "small-feature",
+      "prereqs": [],
+      "mode": "serial",
+      "status": "in_progress"
+    },
+    {
+      "id": "mosga-v03-ui-journey-shell",
+      "pipeline": "small-feature",
+      "prereqs": ["mosga-v03-ui-design-system"],
+      "mode": "serial",
+      "status": "pending"
+    },
+    {
+      "id": "mosga-v03-publish-exit-one",
+      "pipeline": "small-feature",
+      "prereqs": ["mosga-v03-ui-journey-shell"],
+      "mode": "serial",
+      "status": "pending"
+    }
+  ],
+  "frontier": ["mosga-v03-ui-design-system"],
+  "portfolioComplete": false,
+  "planner": { "role": "planner", "agentName": "planner-v03", "sessionId": "c74be5df-223e-4172-ab7d-64ff592480ca" },
+  "delegatedParentStages": ["propose", "apply", "verify", "review-loop", "ship", "archive"],
+  "userDecisions": {
+    "scope": "office-hours scope C: visual system + journey restructure + HF publish wiring (2026-07-09)",
+    "gates": "user pre-authorized continuous run — gates reported, not blocked on ('no gate，你来推进执行所有任务', 2026-07-09)",
+    "designAuthority": "rasen/office-hours/frontend-ui-redesign.md is AUTHORITATIVE for all three slices"
+  },
+  "notes": "Strict serial chain — all three slices touch packages/ui, no positive independence proof. CLI is rasen fork; root migrated openspec/ -> rasen/ this run (copy-only, openspec/ frozen read-only legacy). Workers must use node <rasen.js path> for CLI and write artifacts under rasen/changes/. Do NOT modify archived v01/v02 artifacts."
+}

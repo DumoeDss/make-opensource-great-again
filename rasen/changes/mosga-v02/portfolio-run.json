@@ -1,0 +1,53 @@
+{
+  "pipeline": "auto-decompose",
+  "classification": "portfolio",
+  "tier": "A",
+  "decompose": "taken",
+  "decomposeRationale": "Task contains 2 user-selected deliverables (exit-2 API direct submit, Tauri v2 shell) plus 1 LEAD-added small safety slice (sanitizer field-coverage blind spot). Each is an independently reviewable slice; combined diff would be too large to review as one.",
+  "children": [
+    {
+      "id": "mosga-v02-sanitizer-coverage",
+      "pipeline": "small-feature",
+      "prereqs": [],
+      "mode": "serial",
+      "status": "done",
+      "ship": "c834905",
+      "archive": "fdea46c",
+      "archivedPath": "openspec/changes/archive/2026-07-08-mosga-v02-sanitizer-coverage"
+    },
+    {
+      "id": "mosga-v02-direct-submit",
+      "pipeline": "small-feature",
+      "prereqs": ["mosga-v02-sanitizer-coverage"],
+      "mode": "serial",
+      "status": "done",
+      "ship": "19f774f",
+      "archive": "bc91cb3",
+      "archivedPath": "openspec/changes/archive/2026-07-08-mosga-v02-direct-submit"
+    },
+    {
+      "id": "mosga-v02-tauri-shell",
+      "pipeline": "small-feature",
+      "prereqs": ["mosga-v02-direct-submit"],
+      "mode": "serial",
+      "status": "done",
+      "ship": "57ce32f",
+      "archive": "c5d1b4a",
+      "archivedPath": "openspec/changes/archive/2026-07-08-mosga-v02-tauri-shell"
+    }
+  ],
+  "frontier": [],
+  "portfolioComplete": true,
+  "humanFollowUps": [
+    "GUI smoke test: run the 4 scenarios in openspec/changes/archive/2026-07-08-mosga-v02-tauri-shell/smoke-test.md on a Windows GUI session (spawn lifecycle, close-kills-spawned-only, adopt-running-daemon, foreign-port failure)",
+    "E: drive critically low on space (~2.6GB free after cargo clean) — cargo builds redirected to C: scratchpad this session; free up E: for future work",
+    "Open Questions still pending user decision: dataset license, HF org/repo naming, re-identification consent copy, schema calibration against founder's draft"
+  ],
+  "planner": { "role": "planner", "agentName": "planner-v02", "sessionId": "b3912d01-6d86-4dec-8e73-2213e28af4f5" },
+  "delegatedParentStages": ["propose", "apply", "verify", "review-loop", "ship", "archive"],
+  "userDecisions": {
+    "scope": "both exit-2 and tauri-shell, exit-2 first (2026-07-09)",
+    "tosOpenQuestion3": "informed-consent + full-retention for exit-2 channel (2026-07-09); write back to office-hours doc"
+  },
+  "notes": "Strict serial chain, same conservative policy as v0.1: shared monorepo config + @mosga/contracts, no positive independence proof between adjacent slices. User pre-approved continuous run (gates reported, not blocked on). CLI is rasen fork, NOT global openspec — see planning-context.md header. Do NOT modify archived v0.1 change artifacts."
+}

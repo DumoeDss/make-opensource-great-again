@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MOSGA 前端重设计 — 线框草图（方案 B：旅程重构）</title>
+<!-- 刻意粗糙的线框：系统字体、灰色细线、不上色。这是结构草图，不是视觉稿。
+     视觉层将整体移植 omnicross 设计令牌（暖象牙 surface / 赤陶橙 accent / Georgia display）。 -->
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: system-ui, sans-serif; color: #333; background: #fff; padding: 24px; font-size: 13px; }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  .note { color: #888; margin-bottom: 24px; }
+  .screen { border: 2px solid #bbb; border-radius: 6px; margin-bottom: 40px; max-width: 980px; }
+  .screen-label { background: #eee; padding: 6px 12px; font-weight: 600; border-bottom: 1px solid #bbb; }
+  .shell { display: flex; min-height: 420px; }
+  /* NavRail：与 omnicross 同构的左侧导航 */
+  .rail { width: 150px; border-right: 1px solid #ccc; padding: 12px 8px; flex-shrink: 0; }
+  .rail .logo { font-weight: 700; margin-bottom: 2px; }
+  .rail .sub { color: #999; font-size: 11px; margin-bottom: 16px; }
+  .rail .item { padding: 7px 10px; border-radius: 4px; margin-bottom: 2px; color: #777; }
+  .rail .item.active { background: #e8e8e8; color: #111; font-weight: 600; }
+  .rail .foot { margin-top: 120px; font-size: 10px; color: #aaa; border-top: 1px solid #ddd; padding-top: 8px; }
+  .main { flex: 1; padding: 16px 20px; }
+  /* 常驻步骤条：解决"我走到哪一步"不可见的病根 */
+  .stepper { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #ddd; }
+  .step { display: flex; gap: 6px; align-items: center; color: #999; }
+  .step .n { width: 20px; height: 20px; border: 1.5px solid #999; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+  .step.done .n { background: #666; border-color: #666; color: #fff; }
+  .step.cur { color: #111; font-weight: 600; }
+  .step.cur .n { border-color: #111; }
+  .arrow { color: #ccc; }
+  .gate-chip { margin-left: auto; border: 1.5px dashed #999; border-radius: 12px; padding: 3px 10px; font-size: 11px; color: #666; }
+  .card { border: 1px solid #ccc; border-radius: 6px; padding: 12px; margin-bottom: 10px; }
+  .row { display: flex; gap: 10px; }
+  .row .card { flex: 1; }
+  .muted { color: #999; font-size: 11px; }
+  .btn { display: inline-block; border: 1.5px solid #555; border-radius: 4px; padding: 5px 14px; font-weight: 600; margin-top: 8px; }
+  .btn.ghost { border-color: #bbb; color: #888; font-weight: 400; }
+  .pill { display: inline-block; border: 1px solid #aaa; border-radius: 10px; padding: 1px 8px; font-size: 11px; color: #666; margin-right: 4px; }
+  .sidebar { width: 170px; flex-shrink: 0; border: 1px solid #ccc; border-radius: 6px; padding: 8px; margin-right: 12px; }
+  .sidebar .grp { padding: 6px 8px; border-radius: 4px; margin-bottom: 2px; color: #777; display: flex; justify-content: space-between; }
+  .sidebar .grp.active { background: #e8e8e8; color: #111; font-weight: 600; }
+  .finding { border: 1px solid #ddd; border-radius: 4px; padding: 8px 10px; margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  .finding code { background: #f0f0f0; padding: 1px 6px; border-radius: 3px; font-size: 12px; }
+  .finding .acts { margin-left: auto; display: flex; gap: 4px; }
+  .finding .acts span { border: 1px solid #bbb; border-radius: 3px; padding: 2px 8px; font-size: 11px; color: #777; }
+  .sign { border: 2px solid #888; border-radius: 8px; padding: 20px; text-align: center; max-width: 480px; margin: 24px auto; }
+  .sign .serif { font-family: Georgia, serif; font-size: 16px; margin-bottom: 10px; }
+  details { margin-top: 10px; color: #888; }
+</style>
+</head>
+<body>
+<h1>MOSGA 前端重设计 — 线框草图</h1>
+<p class="note">方案 B「旅程重构」。灰线框 = 结构；最终视觉整体移植 omnicross 令牌（暖象牙底 / 赤陶橙 accent / Georgia 标题 / lucide 图标）。</p>
+
+<!-- ============ 屏幕 1：处置工作区（原 3 个 tab 合并） ============ -->
+<div class="screen">
+  <div class="screen-label">屏幕 1 · 第②步 处置命中 —— 原 blocking/图像/L3 三个 tab 合并为「左侧分组 + 右侧队列」工作区</div>
+  <div class="shell">
+    <div class="rail">
+      <div class="logo">MOSGA</div>
+      <div class="sub">安全捐赠你的会话</div>
+      <div class="item active">✦ 贡献</div>
+      <div class="item">◷ 历史</div>
+      <div class="item">⚙ 设置</div>
+      <div class="foot">127.0.0.1:8899<br>daemon 运行中</div>
+    </div>
+    <div class="main">
+      <div class="stepper">
+        <div class="step done"><span class="n">✓</span> 选择会话</div><span class="arrow">→</span>
+        <div class="step cur"><span class="n">2</span> 处置命中</div><span class="arrow">→</span>
+        <div class="step"><span class="n">3</span> 签署确认</div><span class="arrow">→</span>
+        <div class="step"><span class="n">4</span> 选择出口</div>
+        <div class="gate-chip">🔒 还差 7 项解锁</div>
+      </div>
+      <div class="row">
+        <div class="sidebar">
+          <div class="grp active"><span>密钥命中</span><span>5</span></div>
+          <div class="grp"><span>自定义规则</span><span>2</span></div>
+          <div class="grp"><span>图像/附件</span><span>3</span></div>
+          <div class="grp"><span>归一化统计</span><span>—</span></div>
+        </div>
+        <div style="flex:1">
+          <div class="card" style="border-style:dashed">
+            <span class="pill">按规则批量</span> aws-access-key × 3 → 全部替换为化名
+            <span class="btn ghost" style="margin:0;float:right">一键处理</span>
+          </div>
+          <div class="finding"><code>AKIA••••••••Q7EX</code> <span class="muted">工具调用回显 · 第 41 条消息</span>
+            <div class="acts"><span>替换</span><span>删除</span><span>放行</span></div>
+          </div>
+          <div class="finding"><code>ghp_••••••••</code> <span class="muted">命令输出 · 第 87 条消息</span>
+            <div class="acts"><span>替换</span><span>删除</span><span>放行</span></div>
+          </div>
+          <div class="muted" style="margin-top:8px">每处置一项，右上角锁徽章倒数一项；清零后第③步自动点亮。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 屏幕 2：签署确认门（仪式化） ============ -->
+<div class="screen">
+  <div class="screen-label">屏幕 2 · 第③步 签署确认 —— gate 从"红色横幅"升级为清零后才出现的签署卡（仪式感时刻）</div>
+  <div class="shell">
+    <div class="rail"><div class="logo">MOSGA</div><div class="sub">安全捐赠你的会话</div>
+      <div class="item active">✦ 贡献</div><div class="item">◷ 历史</div><div class="item">⚙ 设置</div>
+      <div class="foot">127.0.0.1:8899</div></div>
+    <div class="main">
+      <div class="stepper">
+        <div class="step done"><span class="n">✓</span> 选择会话</div><span class="arrow">→</span>
+        <div class="step done"><span class="n">✓</span> 处置命中</div><span class="arrow">→</span>
+        <div class="step cur"><span class="n">3</span> 签署确认</div><span class="arrow">→</span>
+        <div class="step"><span class="n">4</span> 选择出口</div>
+        <div class="gate-chip">🔓 已解锁</div>
+      </div>
+      <div class="sign">
+        <div class="serif">数据捐赠确认</div>
+        <div class="muted" style="margin-bottom:12px">
+          10 项密钥命中已全部处置（替换 8 · 删除 2）<br>
+          3 项图像附件已逐条确认（保留 1 · 移除 2）<br>
+          归一化 214 处 · 高危抽检 12 条已通过
+        </div>
+        <div style="text-align:left;border-top:1px solid #ddd;padding-top:10px">
+          ☐ 我确认以上命中项已全部处置、抽检通过，同意导出该脱敏会话
+        </div>
+        <span class="btn">签署并继续 →</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 屏幕 3：双出口 + HF 发布向导 ============ -->
+<div class="screen">
+  <div class="screen-label">屏幕 3 · 第④步 选择出口 —— 双通道获得对等地位；出口① 是 3 步子向导（预检→PR 预览→提交）</div>
+  <div class="shell">
+    <div class="rail"><div class="logo">MOSGA</div><div class="sub">安全捐赠你的会话</div>
+      <div class="item active">✦ 贡献</div><div class="item">◷ 历史</div><div class="item">⚙ 设置</div>
+      <div class="foot">127.0.0.1:8899</div></div>
+    <div class="main">
+      <div class="stepper">
+        <div class="step done"><span class="n">✓</span> 选择会话</div><span class="arrow">→</span>
+        <div class="step done"><span class="n">✓</span> 处置命中</div><span class="arrow">→</span>
+        <div class="step done"><span class="n">✓</span> 签署确认</div><span class="arrow">→</span>
+        <div class="step cur"><span class="n">4</span> 选择出口</div>
+        <div class="gate-chip">🔓 已签署</div>
+      </div>
+      <div class="row">
+        <div class="card">
+          <b>出口① 公开数据集</b> <span class="pill">所有开源模型受益</span>
+          <p class="muted" style="margin:6px 0">GitHub PR → CI 复扫 → 合并 → 同步 HuggingFace</p>
+          <div style="border:1px dashed #ccc;border-radius:4px;padding:8px;margin-top:6px">
+            子向导：<b>1 预检</b>（强制，不过不生成）→ <b>2 预览</b>（PR 标题/正文/文件清单/分支名）→ <b>3 提交</b>（gh 一键 / 无 gh 给手动命令）
+          </div>
+          <span class="btn">开始发布 →</span>
+        </div>
+        <div class="card">
+          <b>出口② API 直投</b> <span class="pill">仅你与目标厂商可见</span>
+          <p class="muted" style="margin:6px 0">选厂商/模型 → 成本估算 → 双重知情确认 → 投递</p>
+          <div style="border:1px dashed #ccc;border-radius:4px;padding:8px;margin-top:6px">
+            现 SubmitPanel 逻辑原样保留，回执从 JSON 转储改为摘要卡片
+            <details><summary>高级：查看原始回执 JSON</summary>（折叠区）</details>
+          </div>
+          <span class="btn ghost">选择直投 →</span>
+        </div>
+      </div>
+      <div class="muted">两个出口互不排斥——同一份已签署会话可先发布数据集、再直投。</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
