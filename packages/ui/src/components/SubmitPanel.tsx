@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { ApiClient } from '../api/client';
 import type {
@@ -38,6 +39,7 @@ interface SubmitPanelProps {
  * pre-send backstop and returns a key-free receipt.
  */
 export function SubmitPanel({ client, reviewId, gate, onSubmitted, beforeSubmit }: SubmitPanelProps): JSX.Element {
+  const { t } = useTranslation();
   const [providers, setProviders] = useState<ProviderTarget[]>([]);
   const [providerId, setProviderId] = useState('');
   const [model, setModel] = useState('');
@@ -249,7 +251,7 @@ export function SubmitPanel({ client, reviewId, gate, onSubmitted, beforeSubmit 
         size="lg"
         data-testid="submit-confirm"
       >
-        Confirm &amp; submit (出口②)
+        {t('submit.confirmButton')}
       </Button>
 
       {error && (
@@ -261,15 +263,15 @@ export function SubmitPanel({ client, reviewId, gate, onSubmitted, beforeSubmit 
       {receipt && (
         <div className="space-y-3 rounded-md border border-success/50 bg-success/10 p-4" data-testid="submit-receipt">
           <p className="text-sm font-medium text-success">
-            已直投 {receipt.targetProviderId} / {receipt.targetModel} — 预发送防线通过。
+            {t('submit.receiptSummary', { provider: receipt.targetProviderId, model: receipt.targetModel })}
           </p>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-            <dt className="text-text-muted">目标</dt>
+            <dt className="text-text-muted">{t('submit.target')}</dt>
             <dd className="font-mono">{receipt.targetProviderId} / {receipt.targetModel}</dd>
-            <dt className="text-text-muted">回放模式</dt>
+            <dt className="text-text-muted">{t('submit.replayModeLabel')}</dt>
             <dd className="font-mono">{receipt.replayMode}</dd>
           </dl>
-          <AdvancedFold label="高级：原始回执 JSON" data-testid="receipt-advanced">
+          <AdvancedFold label={t('submit.advancedReceipt')} data-testid="receipt-advanced">
             <pre className="max-h-72 overflow-auto rounded-md bg-surface-2 p-3 font-mono text-xs text-text-muted">
               {JSON.stringify(receipt, null, 2)}
             </pre>

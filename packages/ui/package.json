@@ -19,9 +19,11 @@
     "@radix-ui/react-dialog": "^1.1.2",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
+    "i18next": "^26.3.6",
     "lucide-react": "^0.451.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-i18next": "^17.0.11",
     "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {

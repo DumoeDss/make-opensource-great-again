@@ -8,6 +8,7 @@
  */
 import { Download, Send, UploadCloud } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { ApiClient } from '../../api/client';
 import type { SanitizationReport, SanitizedSession, SubmissionReceipt } from '../../api/types';
@@ -37,11 +38,11 @@ interface ExitCardsProps {
   requireAffirm?: (proceed: () => void) => void;
 }
 
-/** Guidance text for each non-ready preflight state. */
-const STATE_GUIDANCE: Record<string, string> = {
-  需配置: '尚未配置数据仓库。以 `--data-repo <路径>` 重启 daemon 后即可发布（路径仅服务端配置，不经界面填写）。',
-  缺依赖: '缺少 git，或数据仓库工作区不干净。请安装 git、提交或清理工作区后重试。',
-  gh未登录: 'gh 已安装但未登录。可继续走手动路径（落盘 + 手动推送开 PR），或先 `gh auth login` 以启用一键提交。',
+/** Guidance i18n key for each non-ready preflight state. */
+const STATE_GUIDANCE_KEY: Record<string, string> = {
+  需配置: 'exit.guidanceNeedsConfig',
+  缺依赖: 'exit.guidanceMissingDeps',
+  gh未登录: 'exit.guidanceGhUnauth',
 };
 
 export function ExitCards({
@@ -56,6 +57,7 @@ export function ExitCards({
   onJumpToRule,
   requireAffirm,
 }: ExitCardsProps): JSX.Element {
+  const { t } = useTranslation();
   const [showExport, setShowExport] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const { state, flags } = usePreflight(client);
@@ -67,10 +69,10 @@ export function ExitCards({
   const canPublish = state === '就绪' || state === 'gh未登录';
   const ctaLabel =
     state === 'loading'
-      ? '检查发布环境…'
+      ? t('exit.ctaProbing')
       : state === 'gh未登录'
-        ? '开始发布（手动路径）'
-        : '开始发布';
+        ? t('exit.ctaManualPublish')
+        : t('exit.ctaPublish');
 
   return (
     <div className="space-y-4" data-testid="exit-cards">
@@ -82,11 +84,10 @@ export function ExitCards({
         >
           <div className="flex items-center gap-2">
             <UploadCloud className="h-5 w-5 text-primary" strokeWidth={1.5} />
-            <h3 className="font-display text-lg font-semibold">出口①　公开数据集</h3>
+            <h3 className="font-display text-lg font-semibold">{t('exit.oneTitle')}</h3>
           </div>
           <p className="mt-2 text-sm text-text-muted">
-            将脱敏后的会话作为 PR 贡献到公开数据仓库：预检 → PR 预览 → 提交。为最大化开放价值的
-            首选通道。
+            {t('exit.oneDescription')}
           </p>
 
           <div className="mt-2 text-xs" data-testid="exit-one-state">
@@ -99,12 +100,12 @@ export function ExitCards({
                     : 'text-warning'
               }
             >
-              状态：{state === 'loading' ? '检测中' : state}
+              {t('exit.stateLabel', { state: state === 'loading' ? t('exit.stateProbing') : state })}
             </span>
           </div>
-          {state !== 'loading' && state !== '就绪' && STATE_GUIDANCE[state] && (
+          {state !== 'loading' && state !== '就绪' && STATE_GUIDANCE_KEY[state] && (
             <p className="mt-1 flex-1 text-xs text-text-subtle" data-testid="exit-one-guidance">
-              {STATE_GUIDANCE[state]}
+              {t(STATE_GUIDANCE_KEY[state])}
             </p>
           )}
 
@@ -142,10 +143,10 @@ export function ExitCards({
         >
           <div className="flex items-center gap-2">
             <Send className="h-5 w-5 text-primary" strokeWidth={1.5} />
-            <h3 className="font-display text-lg font-semibold">出口②　API 直投</h3>
+            <h3 className="font-display text-lg font-semibold">{t('exit.twoTitle')}</h3>
           </div>
           <p className="mt-2 text-sm text-text-muted">
-            将本次会话直投到你选择的模型服务商，用于回放评测。含成本估算与双重知情确认。
+            {t('exit.twoDescription')}
           </p>
           <div className="mt-4">
             <SubmitPanel
@@ -175,7 +176,7 @@ export function ExitCards({
           data-testid="export-secondary"
         >
           <Download className="h-4 w-4" strokeWidth={1.5} />
-          {exporting ? '导出中…' : '仅导出脱敏文件'}
+          {exporting ? t('exit.exporting') : t('exit.exportOnly')}
         </Button>
         {showExport && (
           <div className="mt-3">

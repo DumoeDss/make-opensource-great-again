@@ -15,6 +15,7 @@
  * providers; sequential keeps progress honest and avoids rate bursts.
  */
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { ApiClient } from '../../api/client';
 import type { ProviderTarget, ReplayMode, SubmissionReceipt, SubmitEstimate } from '../../api/types';
@@ -49,6 +50,7 @@ interface BatchSubmitPanelProps {
 type ItemResult = { ok: true; receipt: SubmissionReceipt } | { ok: false; error: string };
 
 export function BatchSubmitPanel({ client, items, onSubmittedAll, beforeRun }: BatchSubmitPanelProps): JSX.Element {
+  const { t } = useTranslation();
   const [providers, setProviders] = useState<ProviderTarget[]>([]);
   const [providerId, setProviderId] = useState('');
   const [model, setModel] = useState('');
@@ -251,25 +253,25 @@ export function BatchSubmitPanel({ client, items, onSubmittedAll, beforeRun }: B
           variant="secondary"
           data-testid="batch-estimate-all"
         >
-          {estimating ? `估算中 ${estimateProgress?.k ?? 0}/${estimateProgress?.n ?? items.length}…` : '估算全部'}
+          {estimating ? t('batchSubmit.estimating', { k: estimateProgress?.k ?? 0, n: estimateProgress?.n ?? items.length }) : t('batchSubmit.estimateBtn')}
         </Button>
       </div>
 
       {allEstimated && (
         <div className="rounded-md border border-border bg-surface-1 p-3 text-sm" data-testid="batch-estimate">
           <div className="flex flex-wrap gap-4">
-            <span>总 token：{totalTokens.toLocaleString()}</span>
-            <span>总成本：~${totalCost.toFixed(4)}</span>
-            <span>共 {items.length} 条</span>
+            <span>{t('batchSubmit.totalTokens', { count: totalTokens.toLocaleString() })}</span>
+            <span>{t('batchSubmit.totalCost', { cost: totalCost.toFixed(4) })}</span>
+            <span>{t('batchSubmit.totalCount', { count: items.length })}</span>
           </div>
-          <p className="mt-1 text-xs text-text-subtle">Token 计数为准；成本为近似，各服务商定价可能不同。</p>
-          <AdvancedFold label="高级：逐条估算" data-testid="batch-estimate-detail">
+          <p className="mt-1 text-xs text-text-subtle">{t('batchSubmit.costNote')}</p>
+          <AdvancedFold label={t('batchSubmit.advancedDetail')} data-testid="batch-estimate-detail">
             <table className="w-full text-left text-xs">
               <thead className="text-text-muted">
                 <tr>
-                  <th className="py-1 pr-3 font-medium">会话</th>
-                  <th className="py-1 pr-3 font-medium">token</th>
-                  <th className="py-1 font-medium">~成本</th>
+                  <th className="py-1 pr-3 font-medium">{t('batchSubmit.colSession')}</th>
+                  <th className="py-1 pr-3 font-medium">{t('batchSubmit.colToken')}</th>
+                  <th className="py-1 font-medium">{t('batchSubmit.colCost')}</th>
                 </tr>
               </thead>
               <tbody className="font-mono text-text-subtle">
@@ -290,7 +292,7 @@ export function BatchSubmitPanel({ client, items, onSubmittedAll, beforeRun }: B
       )}
 
       <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-foreground">
-        <p className="font-medium">批量直投以下 {items.length} 个会话前，请确认：</p>
+        <p className="font-medium">{t('batchSubmit.ackTitle', { count: items.length })}</p>
         <label className="mt-2 flex items-start gap-2">
           <input
             type="checkbox"
@@ -300,7 +302,7 @@ export function BatchSubmitPanel({ client, items, onSubmittedAll, beforeRun }: B
             className="mt-0.5 accent-primary"
           />
           <span>
-            我理解将这些会话发送给第三方服务商可能受其服务条款约束，并接受该风险。
+            {t('batchSubmit.ackTos')}
           </span>
         </label>
         <label className="mt-2 flex items-start gap-2">
@@ -312,7 +314,7 @@ export function BatchSubmitPanel({ client, items, onSubmittedAll, beforeRun }: B
             className="mt-0.5 accent-primary"
           />
           <span>
-            我理解每个会话的完整内容（含我的助手消息，回放所需）都会被发送，而非仅我的提问。
+            {t('batchSubmit.ackRetention')}
           </span>
         </label>
       </div>
@@ -324,7 +326,7 @@ export function BatchSubmitPanel({ client, items, onSubmittedAll, beforeRun }: B
         size="lg"
         data-testid="batch-submit-run"
       >
-        {running ? `直投中 ${runProgress?.k ?? 0}/${runProgress?.n ?? items.length}…` : `批量直投 ${items.length} 条`}
+        {running ? t('batchSubmit.running', { k: runProgress?.k ?? 0, n: runProgress?.n ?? items.length }) : t('batchSubmit.runBtn', { count: items.length })}
       </Button>
 
       {error && (
@@ -350,11 +352,11 @@ export function BatchSubmitPanel({ client, items, onSubmittedAll, beforeRun }: B
                   </span>
                   {r.ok ? (
                     <span className="shrink-0 text-success">
-                      已直投 {r.receipt.targetProviderId} / {r.receipt.targetModel}
+                      {t('batchSubmit.resultOk', { provider: r.receipt.targetProviderId, model: r.receipt.targetModel })}
                     </span>
                   ) : (
                     <div className="flex shrink-0 items-center gap-2">
-                      <span className="text-destructive">失败：{r.error}</span>
+                      <span className="text-destructive">{t('batchSubmit.resultFail', { error: r.error })}</span>
                       <Button
                         type="button"
                         size="xs"
@@ -362,7 +364,7 @@ export function BatchSubmitPanel({ client, items, onSubmittedAll, beforeRun }: B
                         onClick={() => void onRetry(item)}
                         data-testid={`batch-submit-retry-${item.sessionId}`}
                       >
-                        重试
+                        {t('batchSubmit.retry')}
                       </Button>
                     </div>
                   )}

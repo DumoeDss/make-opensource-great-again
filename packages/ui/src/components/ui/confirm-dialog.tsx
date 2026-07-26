@@ -4,6 +4,7 @@
  * 替代 window.confirm，提供符合项目风格的确认对话框。
  */
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { cn } from '@/lib/cn';
 
@@ -34,12 +35,15 @@ export function ConfirmDialog({
   onOpenChange,
   title,
   description,
-  confirmLabel = '确认',
-  cancelLabel = '取消',
+  confirmLabel,
+  cancelLabel,
   variant = 'destructive',
   onConfirm,
   testid = 'dialog-confirm',
 }: ConfirmDialogProps) {
+  const { t } = useTranslation();
+  const okLabel = confirmLabel ?? t('ui.confirmDefault');
+  const noLabel = cancelLabel ?? t('ui.cancelDefault');
   const handleConfirm = () => {
     onOpenChange(false);
     onConfirm();
@@ -60,7 +64,7 @@ export function ConfirmDialog({
             data-testid={`${testid}-cancel-btn`}
             className="px-4 py-2 text-sm rounded-lg border border-border text-foreground hover:bg-surface-1 transition-colors"
           >
-            {cancelLabel}
+            {noLabel}
           </button>
           <button
             onClick={handleConfirm}
@@ -73,7 +77,7 @@ export function ConfirmDialog({
                 : 'bg-primary text-primary-foreground hover:bg-primary/90',
             )}
           >
-            {confirmLabel}
+            {okLabel}
           </button>
         </DialogFooter>
       </DialogContent>

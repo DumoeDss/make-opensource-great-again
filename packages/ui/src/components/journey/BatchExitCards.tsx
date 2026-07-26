@@ -18,6 +18,7 @@
  */
 import { Download, Send, UploadCloud } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { ApiClient } from '../../api/client';
 import { usePreflight } from '../../lib/usePreflight';
@@ -50,10 +51,10 @@ interface BatchExitCardsProps {
 }
 
 /** Guidance text for each non-ready preflight state (mirrors the single ExitCards). */
-const STATE_GUIDANCE: Record<string, string> = {
-  需配置: '尚未配置数据仓库。以 `--data-repo <路径>` 重启 daemon 后即可发布（路径仅服务端配置，不经界面填写）。',
-  缺依赖: '缺少 git，或数据仓库工作区不干净。请安装 git、提交或清理工作区后重试。',
-  gh未登录: 'gh 已安装但未登录。可继续走手动路径（落盘 + 手动推送开 PR），或先 `gh auth login` 以启用一键提交。',
+const STATE_GUIDANCE_KEY: Record<string, string> = {
+  需配置: 'exit.guidanceNeedsConfig',
+  缺依赖: 'exit.guidanceMissingDeps',
+  gh未登录: 'exit.guidanceGhUnauth',
 };
 
 export function BatchExitCards({
@@ -64,6 +65,7 @@ export function BatchExitCards({
   onJumpToSession,
   requireAffirm,
 }: BatchExitCardsProps): JSX.Element {
+  const { t } = useTranslation();
   const [wizardOpen, setWizardOpen] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -76,10 +78,10 @@ export function BatchExitCards({
   const canPublish = state === '就绪' || state === 'gh未登录';
   const ctaLabel =
     state === 'loading'
-      ? '检查发布环境…'
+      ? t('exit.ctaProbing')
       : state === 'gh未登录'
-        ? '开始发布（手动路径）'
-        : '开始发布';
+        ? t('exit.ctaManualPublish')
+        : t('exit.ctaPublish');
   const reviewIds = items.map((i) => i.reviewId);
 
   const download = async (item: BatchExitItem): Promise<void> => {
@@ -91,7 +93,7 @@ export function BatchExitCards({
     try {
       const result = await client.exportReview(item.reviewId);
       if (!result.ok) {
-        setErrors((e) => ({ ...e, [item.reviewId]: '导出被拒绝：出口已重新锁定。' }));
+        setErrors((e) => ({ ...e, [item.reviewId]: t('batchExit.exportRefused') }));
         return;
       }
       const jsonl = `${JSON.stringify(result.data.session)}\n`;
@@ -122,11 +124,10 @@ export function BatchExitCards({
         >
           <div className="flex items-center gap-2">
             <UploadCloud className="h-5 w-5 text-primary" strokeWidth={1.5} />
-            <h3 className="font-display text-lg font-semibold">批量出口①　公开数据集</h3>
+            <h3 className="font-display text-lg font-semibold">{t('batchExit.oneTitle')}</h3>
           </div>
           <p className="mt-2 text-sm text-text-muted">
-            将 {items.length} 条脱敏会话合并为一个分支 / 一个 PR 贡献到公开数据仓库：预检 → PR
-            预览 → 提交。
+            {t('batchExit.oneDescription', { count: items.length })}
           </p>
 
           <div className="mt-2 text-xs" data-testid="batch-exit-one-state">
@@ -135,12 +136,12 @@ export function BatchExitCards({
                 state === '就绪' ? 'text-success' : state === 'loading' ? 'text-text-subtle' : 'text-warning'
               }
             >
-              状态：{state === 'loading' ? '检测中' : state}
+              {t('exit.stateLabel', { state: state === 'loading' ? t('exit.stateProbing') : state })}
             </span>
           </div>
-          {state !== 'loading' && state !== '就绪' && STATE_GUIDANCE[state] && (
+          {state !== 'loading' && state !== '就绪' && STATE_GUIDANCE_KEY[state] && (
             <p className="mt-1 flex-1 text-xs text-text-subtle" data-testid="batch-exit-one-guidance">
-              {STATE_GUIDANCE[state]}
+              {t(STATE_GUIDANCE_KEY[state])}
             </p>
           )}
 
@@ -178,10 +179,10 @@ export function BatchExitCards({
         >
           <div className="flex items-center gap-2">
             <Send className="h-5 w-5 text-primary" strokeWidth={1.5} />
-            <h3 className="font-display text-lg font-semibold">批量出口②　API 直投</h3>
+            <h3 className="font-display text-lg font-semibold">{t('batchExit.twoTitle')}</h3>
           </div>
           <p className="mt-2 text-sm text-text-muted">
-            将 {items.length} 条会话逐条直投到你选择的模型服务商，含总成本估算与逐条内容绑定的知情确认。
+            {t('batchExit.twoDescription', { count: items.length })}
           </p>
           <div className="mt-4">
             <BatchSubmitPanel
@@ -197,7 +198,7 @@ export function BatchExitCards({
       {/* Low-key secondary: export the sanitized files. */}
       <div className="border-t border-border pt-3">
         <div className="flex items-center justify-between">
-          <span className="text-sm text-text-muted">仅导出脱敏文件（{items.length} 条）</span>
+          <span className="text-sm text-text-muted">{t('batchExit.exportLabel', { count: items.length })}</span>
           <Button
             type="button"
             variant="link"
@@ -207,7 +208,7 @@ export function BatchExitCards({
             data-testid="batch-export-all"
           >
             <Download className="h-4 w-4" strokeWidth={1.5} />
-            导出全部脱敏文件
+            {t('batchExit.exportAll')}
           </Button>
         </div>
         <ul className="mt-2 divide-y divide-border rounded-md border border-border">
@@ -231,7 +232,7 @@ export function BatchExitCards({
                     data-testid={`batch-download-${item.sessionId}`}
                   >
                     <Download className="h-4 w-4" strokeWidth={1.5} />
-                    下载 .jsonl
+                    {t('batchExit.downloadJsonl')}
                   </Button>
                 </div>
                 {error && <p className="text-xs text-destructive">{error}</p>}

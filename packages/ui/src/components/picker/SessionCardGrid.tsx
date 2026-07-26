@@ -10,6 +10,7 @@
  * (elftia parity), with a checkbox glyph as the affordance and a ring on selection.
  */
 import { Check } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import type { SessionRef } from '../../api/types';
 import { cn } from '../../lib/cn';
@@ -36,13 +37,14 @@ export function SessionCardGrid({
   onSelectAll,
   onClear,
 }: SessionCardGridProps): JSX.Element {
+  const { t } = useTranslation();
   if (folderLabel === null) {
     return (
       <div
         className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-border text-sm text-text-subtle"
         data-testid="grid-empty"
       >
-        从左侧选择一个文件夹以查看会话。
+        {t('picker.emptyFolder')}
       </div>
     );
   }
@@ -62,7 +64,7 @@ export function SessionCardGrid({
             disabled={sessions.length === 0}
             data-testid="select-all"
           >
-            全选本文件夹
+            {t('picker.selectAllFolder')}
           </Button>
           <Button
             type="button"
@@ -72,14 +74,14 @@ export function SessionCardGrid({
             disabled={selection.size === 0}
             data-testid="clear-selection"
           >
-            清空
+            {t('picker.clearSelection')}
           </Button>
         </div>
       </div>
 
       {sessions.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border px-3 py-8 text-center text-sm text-text-subtle">
-          该文件夹没有会话。
+          {t('picker.noSessions')}
         </p>
       ) : (
         // The grid scrolls on its own; the folder header + 全选/清空 stay pinned above.

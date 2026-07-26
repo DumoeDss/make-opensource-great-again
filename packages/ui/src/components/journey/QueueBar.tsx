@@ -10,6 +10,7 @@
  * 无需处置 (pending===0, green).
  */
 import { Unlock, Wand2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import type { QueueItem } from '../../api/types';
 import { cn } from '../../lib/cn';
@@ -37,6 +38,7 @@ export function QueueBar({
   onCleanQueue,
   busy,
 }: QueueBarProps): JSX.Element {
+  const { t } = useTranslation();
   const currentTitle = items[current].ref.title ?? items[current].review.report.sessionId;
 
   return (
@@ -47,7 +49,7 @@ export function QueueBar({
       {/* Row 1: the current session's position + title (title owns this line). */}
       <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
         <span className="shrink-0">
-          会话 {current + 1}/{items.length}
+          {t('queue.sessionPos', { current: current + 1, total: items.length })}
         </span>
         <span className="min-w-0 truncate text-text-muted" title={currentTitle}>
           · {currentTitle}
@@ -74,9 +76,12 @@ export function QueueBar({
                 data-testid={`queue-item-${i + 1}`}
                 data-state={state}
                 data-current={isCurrent || undefined}
-                title={`${item.ref.title ?? item.review.report.sessionId} — ${
-                  hits > 0 ? `还差 ${hits} 项` : '无需人工处置'
-                }`}
+                title={t(
+                  hits > 0 ? 'queue.itemTitlePending' : 'queue.itemTitleDone',
+                  hits > 0
+                    ? { title: item.ref.title ?? item.review.report.sessionId, count: hits }
+                    : { title: item.ref.title ?? item.review.report.sessionId },
+                )}
                 className={cn(
                   'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors',
                   tone,
@@ -104,7 +109,7 @@ export function QueueBar({
             className="shrink-0"
           >
             <Wand2 className="h-3.5 w-3.5" strokeWidth={1.5} />
-            一键替换全部会话命中（{queueCleanableCount} 处）
+            {t('queue.cleanAll', { count: queueCleanableCount })}
           </Button>
         )}
       </div>
