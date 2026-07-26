@@ -1,5 +1,6 @@
 import { ArrowLeft } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { ApiClient } from '../api/client';
 import type {
@@ -49,6 +50,7 @@ interface ItemState {
  * with progress prompts a second confirm.
  */
 export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.Element {
+  const { t } = useTranslation();
   const [states, setStates] = useState<ItemState[]>(() =>
     items.map((qi) => ({
       reviewId: qi.review.reviewId,
@@ -286,7 +288,7 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
       }
     }
     setBusy(false);
-    if (failures.length > 0) setError(`部分会话清洗失败：${failures.join('；')}`);
+    if (failures.length > 0) setError(t('review.cleanQueueFailures', { failures: failures.join('；') }));
     // Auto-advance to 选择出口 once the whole queue is cleared.
     const allClearedNow = states.every((s) => (updated.get(s.reviewId) ?? s.report).gate.unlocked);
     if (allClearedNow) setActiveStep(3);
@@ -340,7 +342,7 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
             data-testid="restart"
           >
             <ArrowLeft className="h-4 w-4" strokeWidth={1.5} />
-            换会话
+            {t('review.changeSession')}
           </button>
         )}
       </header>
@@ -432,10 +434,10 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        title="作废捐赠确认并重新锁定出口"
-        description="修改处置将作废你已完成的捐赠确认，出口将重新锁定，需要重新确认。"
-        confirmLabel="作废并修改"
-        cancelLabel="取消"
+        title={t('review.voidTitle')}
+        description={t('review.voidDescription')}
+        confirmLabel={t('review.voidConfirm')}
+        cancelLabel={t('review.voidCancel')}
         onConfirm={onConfirmVoid}
       />
 
@@ -443,10 +445,10 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
         open={restartOpen}
         onOpenChange={setRestartOpen}
         testid="restart-confirm"
-        title="放弃当前队列？"
-        description="返回选择会话将丢弃本次队列的处置进度，需要重新开始。"
-        confirmLabel="放弃并返回"
-        cancelLabel="继续审阅"
+        title={t('review.restartTitle')}
+        description={t('review.restartDescription')}
+        confirmLabel={t('review.restartConfirm')}
+        cancelLabel={t('review.restartCancel')}
         onConfirm={() => onRestart?.()}
       />
     </div>

@@ -29,5 +29,9 @@ export default defineConfig({
     // Default to node; UI component tests opt into jsdom per-file via a
     // `// @vitest-environment jsdom` header comment.
     environment: 'node',
+    // Initialize i18next once globally so `useTranslation()` resolves in every
+    // test without an `I18nextProvider` wrapper. The module self-initializes
+    // synchronously with bundled JSON resources (no Suspense, no HTTP).
+    setupFiles: [fileURLToPath(new URL('./packages/ui/src/test-setup.ts', import.meta.url))],
   },
 });

@@ -10,6 +10,7 @@
  */
 import { PenLine } from 'lucide-react';
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { Finding, SanitizationReport } from '../../api/types';
 import { blockingFindings } from '../../lib/findings';
@@ -22,8 +23,8 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 
-/** The confirmation summary the reviewer affirms to unlock the exits. */
-export const SIGNED_SUMMARY = '命中项已全部处置 + 含图记录已逐条确认 + 抽检通过';
+/** The confirmation summary i18n key the reviewer affirms to unlock the exits. */
+export const SIGNED_SUMMARY = 'affirm.confirmStatement';
 
 interface AffirmDialogProps {
   open: boolean;
@@ -62,6 +63,7 @@ function aggregate(reports: SanitizationReport[]) {
 }
 
 export function AffirmDialog({ open, onOpenChange, reports, onConfirm }: AffirmDialogProps): JSX.Element {
+  const { t } = useTranslation();
   const summary = useMemo(() => aggregate(reports), [reports]);
 
   // Run the pending exit action BEFORE closing, so the container's close handler
@@ -75,41 +77,41 @@ export function AffirmDialog({ open, onOpenChange, reports, onConfirm }: AffirmD
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg" hideCloseButton data-testid="affirm-dialog">
         <DialogHeader>
-          <DialogTitle className="font-display text-xl">数据捐赠确认</DialogTitle>
+          <DialogTitle className="font-display text-xl">{t('affirm.title')}</DialogTitle>
           <DialogDescription>
-            你即将确认对以下 {reports.length} 个会话的全部处置。请核对聚合摘要后确认。
+            {t('affirm.description', { count: reports.length })}
           </DialogDescription>
         </DialogHeader>
 
         <dl className="space-y-2 rounded-md border border-border bg-surface-0 p-4 text-sm">
           <div className="flex justify-between gap-4">
-            <dt className="text-text-muted">会话数</dt>
+            <dt className="text-text-muted">{t('affirm.sessions')}</dt>
             <dd className="font-mono" data-testid="summary-sessions">
               {reports.length}
             </dd>
           </div>
           <div className="flex justify-between gap-4">
-            <dt className="text-text-muted">命中处置</dt>
+            <dt className="text-text-muted">{t('affirm.dispositions')}</dt>
             <dd className="font-mono" data-testid="summary-dispositions">
-              替换 {summary.replace} · 删除 {summary.delete} · 放行 {summary.allow}
+              {t('affirm.dispositionSummary', { r: summary.replace, d: summary.delete, a: summary.allow })}
             </dd>
           </div>
           <div className="flex justify-between gap-4">
-            <dt className="text-text-muted">含图记录</dt>
+            <dt className="text-text-muted">{t('affirm.nonText')}</dt>
             <dd className="font-mono" data-testid="summary-nontext">
-              保留 {summary.nonTextKeep} · 排除 {summary.nonTextRemove} / 共 {summary.nonTextTotal}
+              {t('affirm.nonTextSummary', { keep: summary.nonTextKeep, remove: summary.nonTextRemove, total: summary.nonTextTotal })}
             </dd>
           </div>
           <div className="flex justify-between gap-4">
-            <dt className="text-text-muted">归一化统计</dt>
+            <dt className="text-text-muted">{t('affirm.normalization')}</dt>
             <dd className="font-mono" data-testid="summary-l3">
-              {summary.l3Total} 处 · {summary.l3Categories} 类（抽检通过，不阻断）
+              {t('affirm.normalizationSummary', { total: summary.l3Total, categories: summary.l3Categories })}
             </dd>
           </div>
         </dl>
 
         <p className="text-sm">
-          我确认：<b>{SIGNED_SUMMARY}</b>
+          {t('affirm.iConfirm')}<b>{t(SIGNED_SUMMARY)}</b>
         </p>
 
         <DialogFooter className="gap-2 sm:gap-0">
@@ -119,7 +121,7 @@ export function AffirmDialog({ open, onOpenChange, reports, onConfirm }: AffirmD
             data-testid="affirm-cancel"
             className="rounded-lg border border-border px-4 py-2 text-sm text-foreground transition-colors hover:bg-surface-1"
           >
-            取消
+            {t('affirm.cancel')}
           </button>
           <button
             type="button"
@@ -128,7 +130,7 @@ export function AffirmDialog({ open, onOpenChange, reports, onConfirm }: AffirmD
             className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground transition-colors hover:bg-primary/90"
           >
             <PenLine className="h-4 w-4" strokeWidth={1.5} />
-            确认并继续
+            {t('affirm.confirm')}
           </button>
         </DialogFooter>
       </DialogContent>

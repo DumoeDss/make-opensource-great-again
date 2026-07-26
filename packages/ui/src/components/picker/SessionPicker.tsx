@@ -15,6 +15,7 @@
  */
 import { Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { ApiClient } from '../../api/client';
 import type { ProjectAnnotation, QueueItem, SessionRef, SourceRef } from '../../api/types';
@@ -31,6 +32,7 @@ interface SessionPickerProps {
 const selectionKey = (ref: SessionRef): string => `${ref.sourceId} ${ref.projectKey} ${ref.id}`;
 
 export function SessionPicker({ client, onQueueCreated }: SessionPickerProps): JSX.Element {
+  const { t } = useTranslation();
   const [sources, setSources] = useState<SourceRef[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [projectsBySource, setProjectsBySource] = useState<Record<string, SourceProjects | undefined>>({});
@@ -249,7 +251,7 @@ export function SessionPicker({ client, onQueueCreated }: SessionPickerProps): J
     // card grid each keep their own scrollbar (min-h-0 lets the flex row shrink),
     // and the selection bar below the row sits at a fixed bottom position.
     <div className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col gap-4" data-testid="session-picker">
-      <h1 className="shrink-0 text-2xl font-semibold">选择要审阅的会话</h1>
+      <h1 className="shrink-0 text-2xl font-semibold">{t('picker.heading')}</h1>
 
       <div className="flex min-h-0 flex-1 gap-4">
         <SourceTree
@@ -292,7 +294,7 @@ export function SessionPicker({ client, onQueueCreated }: SessionPickerProps): J
           data-testid="selection-bar"
         >
           <div className="text-sm">
-            <span className="font-medium">已选 {selection.size} 个会话</span>
+            <span className="font-medium">{t('picker.selectedCount', { count: selection.size })}</span>
           </div>
           <Button
             type="button"
@@ -300,7 +302,7 @@ export function SessionPicker({ client, onQueueCreated }: SessionPickerProps): J
             disabled={creating}
             data-testid="start-review"
           >
-            开始审阅 {selection.size} 个会话
+            {t('picker.startReview', { count: selection.size })}
           </Button>
         </div>
       )}
@@ -308,7 +310,7 @@ export function SessionPicker({ client, onQueueCreated }: SessionPickerProps): J
       {creating && progress && (
         <p className="text-sm text-text-muted" data-testid="create-progress">
           <Loader2 className="mr-1.5 inline h-4 w-4 animate-spin" strokeWidth={1.5} />
-          正在扫描 {progress.k}/{progress.n}…
+          {t('picker.scanning', { k: progress.k, n: progress.n })}
         </p>
       )}
 
@@ -318,12 +320,12 @@ export function SessionPicker({ client, onQueueCreated }: SessionPickerProps): J
           data-testid="create-failures"
         >
           <p className="text-sm font-medium text-destructive">
-            {failures.length} 个会话扫描失败：
+            {t('picker.failuresSummary', { count: failures.length })}
           </p>
           <ul className="space-y-1 text-xs text-destructive">
             {failures.map((f) => (
               <li key={selectionKey(f.ref)}>
-                {f.ref.title ?? f.ref.id}：{f.error}
+                {t('picker.failureItem', { name: f.ref.title ?? f.ref.id, error: f.error })}
               </li>
             ))}
           </ul>
@@ -335,7 +337,7 @@ export function SessionPicker({ client, onQueueCreated }: SessionPickerProps): J
               onClick={() => onQueueCreated(succeeded)}
               data-testid="continue-remainder"
             >
-              继续（{succeeded.length} 个成功）
+              {t('picker.continueRemainder', { count: succeeded.length })}
             </Button>
             <Button
               type="button"
@@ -347,7 +349,7 @@ export function SessionPicker({ client, onQueueCreated }: SessionPickerProps): J
               }}
               data-testid="return-picker"
             >
-              返回选择
+              {t('picker.returnPicker')}
             </Button>
           </div>
         </div>
