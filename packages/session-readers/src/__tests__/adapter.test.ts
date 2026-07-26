@@ -144,5 +144,6 @@ describe('registry', () => {
   it('returns the Claude Code adapter by id and includes it in listAdapters()', () => {
     expect(getAdapter('claude-code')).toBe(claudeCodeAdapter);
     expect(listAdapters()).toContain(claudeCodeAdapter);
+    expect(claudeCodeAdapter.captureNativeSession).toBeTypeOf('function');
   });
 });

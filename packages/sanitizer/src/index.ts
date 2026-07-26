@@ -29,7 +29,49 @@ export {
   type NonTextItem,
   SanitizationReportSchema,
   type SanitizationReport,
+  REPLAY_REPORT_VERSION,
+  ReplaySanitizationGateSchema,
+  type ReplaySanitizationGate,
+  ReplayLayerSummarySchema,
+  type ReplayLayerSummary,
+  ReplaySanitizationReportSchema,
+  type ReplaySanitizationReport,
+  ReplayScanErrorCodeSchema,
+  type ReplayScanErrorCode,
+  ReplayScanErrorSchema,
+  type ReplayScanError,
+  ReplayScanSuccessSchema,
+  type ReplayScanSuccess,
+  ReplayScanFailureSchema,
+  type ReplayScanFailure,
+  ReplayScanResultSchema,
+  type ReplayScanResultContract,
 } from './schemas.js';
+
+// Replay artifact-aware review primitives are defined in the shared contracts
+// package and re-exported here as part of the sanitizer review surface.
+export {
+  ReplaySpanSchema,
+  type ReplaySpan,
+  ReplayNativeFindingLocationSchema,
+  type ReplayNativeFindingLocation,
+  ReplayInstructionFindingLocationSchema,
+  type ReplayInstructionFindingLocation,
+  ReplayMetadataFindingLocationSchema,
+  type ReplayMetadataFindingLocation,
+  ReplayFindingLocationSchema,
+  type ReplayFindingLocation,
+  ReplayFindingDispositionSchema,
+  type ReplayFindingDisposition,
+  ReplayFindingSchema,
+  type ReplayFinding,
+  ReplayOpaqueLocationSchema,
+  type ReplayOpaqueLocation,
+  ReplayOpaqueDispositionSchema,
+  type ReplayOpaqueDisposition,
+  ReplayOpaqueItemSchema,
+  type ReplayOpaqueItem,
+} from '@mosga/contracts';
 
 // Ruleset ingestion: vendored gitleaks pin, TOML parse, RE2→JS translate,
 // degradation ladder, custom rules, compiled shared-ruleset artifact.
@@ -64,6 +106,22 @@ export { PseudonymMapper } from './pseudonym.js';
 export { shannonEntropy } from './entropy.js';
 export { redactPreview } from './redact.js';
 export { canonicalJson } from './canonical.js';
+export {
+  collectJsonStringLeaves,
+  resolveJsonPointer,
+  collectReplayScanUnits,
+  resolveReplayLocationText,
+  resolveReplayLocationSpan,
+  replayFindingId,
+  computeReplayGate,
+  collectReplayOpaqueItems,
+  replayOpaqueItemId,
+  hashReplayDraftContent,
+  scanReplayDraft,
+  type ReplayScanOptions,
+  type ReplayScanExecutionSuccess,
+  type ReplayScanResult,
+} from './replayScan.js';
 
 // Apply engine: per-hit + batch dispositions, offset-safe application, stamped
 // export-ready session.
@@ -76,3 +134,18 @@ export {
   batchByType,
   setNonTextDisposition,
 } from './apply.js';
+
+export {
+  hashReplayMatch,
+  cloneReplayDraft,
+  writeReplayLocationText,
+  applyReplayFindingEdits,
+  applyReplayOpaqueDecisions,
+  applyReplayDispositions,
+  type ReplayApplyErrorCode,
+  type ReplayApplyError,
+  type ReplayEditResult,
+  type ReplayOpaqueEditResult,
+  type ReplayApplyOptions,
+  type ReplayDispositionApplyResult,
+} from './replayApply.js';

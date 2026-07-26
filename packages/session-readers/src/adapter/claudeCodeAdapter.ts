@@ -21,6 +21,11 @@ import {
   readSessionEntries,
 } from '../filesystem.js';
 import { parseClaudeSession } from '../parseClaudeSession.js';
+import {
+  captureStrictJsonl,
+  completeNativeCapture,
+  extractClaudeNativeContext,
+} from '../nativeCapture.js';
 import type { ContentBlock, JsonlEntry } from '../types.js';
 import type { CliSourceAdapter } from './types.js';
 
@@ -168,5 +173,19 @@ export const claudeCodeAdapter: CliSourceAdapter = {
 
   parseTranscriptToMessages(transcriptPath: string): ParsedMessage[] {
     return parseClaudeSession(transcriptPath);
+  },
+
+  captureNativeSession(ref: CliSessionRef) {
+    const captured = captureStrictJsonl({
+      sourceCli: 'claude-code',
+      sourceFormat: 'claude-code-jsonl',
+      sessionIdAlias: ref.id,
+      transcriptPath: ref.path,
+    });
+    if (!captured.ok) return captured;
+    const { source, trajectory } = extractClaudeNativeContext(
+      captured.artifact,
+    );
+    return completeNativeCapture(captured, source, trajectory);
   },
 };
