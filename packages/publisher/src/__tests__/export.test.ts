@@ -77,16 +77,18 @@ describe('dataset export', () => {
   });
 
   it('resolves a deterministic, idempotent record path', () => {
-    const session = makeStampedSession([], { sessionId: 'sess/../weird id', contributorAlias: '<USERNAME_1>' });
+    const session = makeStampedSession([], {
+      sessionId: 'sess-é',
+      contributorAlias: '<USERNAME_1>',
+    });
     const p1 = exportSession(session, OPTS).recordPath;
     const p2 = exportSession(session, OPTS).recordPath;
     expect(p1).toBe(p2);
     expect(p1).toBe(deterministicRecordPath(session));
-    // Path components are slugified to filesystem-safe tokens (no angle brackets/slashes in leaves).
-    expect(p1).toMatch(/^data\/0\.1\.0\/USERNAME_1\/[A-Za-z0-9._-]+\.jsonl$/);
+    expect(p1).toBe('data/0.1.0/%3CUSERNAME_1%3E/sess-%C3%A9.jsonl');
   });
 
-  it('reads the real sanitizer package version when not overridden', () => {
+  it('uses the build-time sanitizer package version when not overridden', () => {
     const record = exportSession(cleanSession());
     expect(record.provenance.sanitizerPackageVersion).toBe(SANITIZER_PACKAGE_VERSION);
   });

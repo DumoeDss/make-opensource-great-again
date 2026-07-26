@@ -1,7 +1,6 @@
-// @mosga/publisher — closes the v0.1 loop: export a stamped SanitizedSession to
-// the on-disk JSONL dataset format, run the MANDATORY local pre-check (re-scan
-// the exact bytes with the shared @mosga/sanitizer ruleset, hard-refuse on any
-// blocking finding), and prepare a GitHub PR contribution.
+// @mosga/publisher — exports stamped sessions, runs the mandatory exact-byte
+// pre-check, and compiles deterministic, target-independent contribution
+// bundles for a delivery backend.
 
 export {
   ExportError,
@@ -34,41 +33,19 @@ export {
 } from './provenance.js';
 
 export {
-  type ContributionOptions,
-  type ContributionPlan,
-  type StageResult,
-  type RunPrResult,
-  PR_BODY_FILE,
-  planContribution,
-  planContributionAsync,
-  stageContribution,
-  stageContributionAsync,
-  submitContribution,
-  submitContributionAsync,
-} from './pr.js';
-
-export {
-  type BatchContributionPlan,
-  type BatchStageResult,
-  BatchPublishRefusedError,
-  planBatchContributionAsync,
-  stageBatchContributionAsync,
-  submitBatchContributionAsync,
-} from './batch.js';
+  CONTRIBUTION_BUNDLE_CONTRACT_VERSION,
+  CONTRIBUTION_BUNDLE_MAX_RECORDS,
+  ContributionBundleRefusedError,
+  type ContributionBundleOptions,
+  type ContributionBundleFile,
+  type ContributionBundleRecord,
+  type ContributionRefusal,
+  type ContributionBundle,
+  type ContributionManifestEntry,
+  computeContributionContentDigest,
+  compileContributionBundle,
+} from './contribution.js';
 
 export { loadTrustedCustomRules } from './config.js';
-
-export {
-  type CommandRunner,
-  type AsyncCommandRunner,
-  type RunResult,
-  defaultRunner,
-  defaultAsyncRunner,
-  isGitAvailable,
-  isGhAvailable,
-  isGitAvailableAsync,
-  isGhAvailableAsync,
-  ghAuthenticatedAsync,
-} from './runner.js';
 
 export { gitleaksVersion, resolveSanitizerPackageVersion } from './version.js';

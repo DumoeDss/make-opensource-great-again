@@ -1,7 +1,11 @@
 import { type SanitizedSession, SanitizedSessionSchema } from '@mosga/contracts';
 
+import { assertDataRepoPath, encodeRepoSegment } from './path-safety.js';
 import { type ProvenanceStamp } from './provenance.js';
-import { gitleaksVersion, resolveSanitizerPackageVersion } from './version.js';
+import {
+  gitleaksVersion,
+  sanitizerPackageVersion as defaultSanitizerPackageVersion,
+} from './version.js';
 
 /** Raised when a session cannot be exported (un-stamped, gate-locked, or invalid). */
 export class ExportError extends Error {
@@ -40,14 +44,12 @@ export interface ExportedRecord {
 }
 
 /**
- * Slugify a path component to a filesystem- and git-safe token while staying
- * deterministic (same input → same slug), so re-export is idempotent. Pseudonym
- * aliases like `<USERNAME_1>` contain characters invalid in Windows filenames;
- * this maps any char outside `[A-Za-z0-9._-]` to `-`.
+ * Encode a path component to a deterministic, collision-free, path/ref-safe
+ * token. Traversal and Git-ref metacharacters are rejected; other non-portable
+ * UTF-8 bytes are percent-encoded.
  */
 export function slugifyPathComponent(value: string): string {
-  const slug = value.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
-  return slug.length > 0 ? slug : 'unknown';
+  return encodeRepoSegment(value, 'path component');
 }
 
 /** Placeholder projectKey when there is no cwd to derive a PII-free key from. */
@@ -83,15 +85,19 @@ export function publishedProjectKey(session: SanitizedSession): string {
  * so the path is identical across platforms (it is used as a git path).
  */
 export function deterministicRecordPath(session: SanitizedSession): string {
-  const schema = slugifyPathComponent(session.schemaVersion);
-  const alias = slugifyPathComponent(session.meta.contributorAlias);
-  const sessionId = slugifyPathComponent(session.session.sessionId);
-  return `data/${schema}/${alias}/${sessionId}.jsonl`;
+  const schema = encodeRepoSegment(session.schemaVersion, 'schemaVersion');
+  const alias = encodeRepoSegment(session.meta.contributorAlias, 'contributorAlias');
+  const sessionId = encodeRepoSegment(session.session.sessionId, 'sessionId');
+  const path = `data/${schema}/${alias}/${sessionId}.jsonl`;
+  assertDataRepoPath(path);
+  return path;
 }
 
 /** The provenance sidecar path paired with a record's path. */
 export function deterministicProvenancePath(session: SanitizedSession): string {
-  return deterministicRecordPath(session).replace(/\.jsonl$/, '.provenance.json');
+  const path = deterministicRecordPath(session).replace(/\.jsonl$/, '.provenance.json');
+  assertDataRepoPath(path);
+  return path;
 }
 
 /**
@@ -119,7 +125,7 @@ export function exportSession(session: SanitizedSession, options: ExportOptions 
   }
 
   const sanitizerPackageVersion =
-    options.sanitizerPackageVersion ?? resolveSanitizerPackageVersion();
+    options.sanitizerPackageVersion ?? defaultSanitizerPackageVersion;
   const provenance: ProvenanceStamp = {
     schemaVersion: valid.schemaVersion,
     sanitizationRulesetVersion: rulesetVersion,
