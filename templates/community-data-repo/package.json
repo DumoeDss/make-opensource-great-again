@@ -6,12 +6,19 @@
   "description": "Community dataset repository scaffold. CI re-scans every incoming record with the PINNED @mosga/sanitizer engine (byte-identical to the contributor's local pre-check), and a canary self-test proves the gate is alive on every run.",
   "license": "MIT",
   "scripts": {
+    "validate:manifest": "node scripts/validate-manifest.mjs",
+    "validate:vendor": "node scripts/validate-vendor.mjs",
+    "test:manifest": "node --test tests/manifest.test.mjs",
+    "check:compat": "npm run validate:manifest && npm run validate:vendor && npm run test:manifest",
     "scan:canary": "node scripts/scan-canary.mjs",
-    "scan:changed": "node scripts/scan-changed.mjs"
+    "scan:changed": "node scripts/scan-changed.mjs",
+    "check": "npm run check:compat && npm run scan:canary"
   },
-  "comment": "The @mosga/sanitizer and @mosga/publisher versions below are PINNED EXACTLY (no ^ / ~) to the sanitizerPackageVersion recorded in contributors' provenance stamps. This is the m3 invariant: CI must re-scan with a byte-identical engine, not merely the same rule text. Bump these only in lockstep with a coordinated ruleset/engine release.",
+  "comment": "The four @mosga tarballs below are self-contained 0.1.0 development snapshots pinned by package-lock.json. They make a generated repository installable before these packages are published to npm. Replace all four together only in a coordinated engine release so CI remains byte-identical to contributor provenance.",
   "dependencies": {
-    "@mosga/publisher": "0.1.0",
-    "@mosga/sanitizer": "0.1.0"
+    "@mosga/contracts": "file:vendor/mosga-contracts-0.1.0.tgz",
+    "@mosga/publisher": "file:vendor/mosga-publisher-0.1.0.tgz",
+    "@mosga/sanitizer": "file:vendor/mosga-sanitizer-0.1.0.tgz",
+    "@mosga/session-readers": "file:vendor/mosga-session-readers-0.1.0.tgz"
   }
 }

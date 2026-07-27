@@ -1,0 +1,8 @@
+{
+  "kind": "mosga-community-data",
+  "contractVersion": 1,
+  "acceptedSchemaVersions": [
+    "0.1.0"
+  ],
+  "license": "CC-BY-4.0"
+}

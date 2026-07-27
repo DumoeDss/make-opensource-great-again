@@ -1,8 +1,8 @@
 /**
  * ExitCards — step ④ (design B3/B4). Two equal exit cards + a low-key secondary
- * export. 出口①「公开数据集」is now a preflight-driven four-state card (就绪 /
- * 需配置 / gh 未登录 / 缺依赖); 就绪 (and gh 未登录, via the manual path) opens the
- * three-step `PublishWizard`. 出口②「API 直投」reuses `SubmitPanel` with every
+ * export. 出口① consumes the daemon-owned publication status and opens the shared
+ * preview/confirm/submit wizard only when publication can proceed. 出口② reuses
+ * `SubmitPanel` with every
  * semantic intact; its receipt is the journey's completion state. 「仅导出脱敏
  * 文件」 keeps the existing sanitized-export path.
  */
@@ -12,8 +12,12 @@ import { useTranslation } from 'react-i18next';
 
 import type { ApiClient } from '../../api/client';
 import type { SanitizationReport, SanitizedSession, SubmissionReceipt } from '../../api/types';
-import { usePreflight } from '../../lib/usePreflight';
+import { usePublication } from '../../lib/usePublication';
 import { ExportPreview } from '../ExportPreview';
+import {
+  canPreviewPublication,
+  PublicationStatusView,
+} from '../publication/PublicationStatusView';
 import { SubmitPanel } from '../SubmitPanel';
 import { Button } from '../ui/button';
 import { PublishWizard } from './PublishWizard';
@@ -28,8 +32,8 @@ interface ExitCardsProps {
   onSubmitted: (receipt: SubmissionReceipt) => void;
   /** A successful 出口① publish → the journey's 已完成 state. */
   onPublished: () => void;
-  /** From the wizard's `precheck_refused` view: jump back to step ② for a rule. */
-  onJumpToRule: (ruleId: string) => void;
+  /** Return an attributed publication error to the disposition workspace. */
+  onJumpToReviewIssue: (reviewId: string, ruleId?: string) => void;
   /**
    * Gate the first exit action behind the one-time donation confirm (design B3).
    * Optional so `ExitCards` stays independently usable — defaults to running the
@@ -37,13 +41,6 @@ interface ExitCardsProps {
    */
   requireAffirm?: (proceed: () => void) => void;
 }
-
-/** Guidance i18n key for each non-ready preflight state. */
-const STATE_GUIDANCE_KEY: Record<string, string> = {
-  需配置: 'exit.guidanceNeedsConfig',
-  缺依赖: 'exit.guidanceMissingDeps',
-  gh未登录: 'exit.guidanceGhUnauth',
-};
 
 export function ExitCards({
   client,
@@ -54,30 +51,27 @@ export function ExitCards({
   onExport,
   onSubmitted,
   onPublished,
-  onJumpToRule,
+  onJumpToReviewIssue,
   requireAffirm,
 }: ExitCardsProps): JSX.Element {
   const { t } = useTranslation();
   const [showExport, setShowExport] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
-  const { state, flags } = usePreflight(client);
+  const publication = usePublication(client);
 
   // Route an exit action through the donation confirm if provided, else run it.
   const guard = requireAffirm ?? ((proceed: () => void) => proceed());
 
-  const ghReady = !!(flags?.ghAvailable && flags?.ghAuthenticated);
-  const canPublish = state === '就绪' || state === 'gh未登录';
+  const canPublish =
+    publication.loadState === 'loaded' &&
+    canPreviewPublication(publication.status);
   const ctaLabel =
-    state === 'loading'
-      ? t('exit.ctaProbing')
-      : state === 'gh未登录'
-        ? t('exit.ctaManualPublish')
-        : t('exit.ctaPublish');
+    publication.loadState === 'loading' ? 'Checking target…' : 'Preview public PR';
 
   return (
     <div className="space-y-4" data-testid="exit-cards">
       <div className="grid gap-4 md:grid-cols-2">
-        {/* 出口① — preflight-driven four-state card + inline publish wizard. */}
+        {/* 出口① — server-owned target status + one shared publication wizard. */}
         <section
           className="flex flex-col rounded-lg border border-border bg-surface-1 p-5"
           data-testid="exit-one"
@@ -90,35 +84,39 @@ export function ExitCards({
             {t('exit.oneDescription')}
           </p>
 
-          <div className="mt-2 text-xs" data-testid="exit-one-state">
-            <span
-              className={
-                state === '就绪'
-                  ? 'text-success'
-                  : state === 'loading'
-                    ? 'text-text-subtle'
-                    : 'text-warning'
-              }
-            >
-              {t('exit.stateLabel', { state: state === 'loading' ? t('exit.stateProbing') : state })}
-            </span>
+          <div className="mt-3 flex-1" data-testid="exit-one-state" aria-live="polite">
+            {publication.loadState === 'loading' && (
+              <p className="text-xs text-text-subtle">Loading GitHub target status…</p>
+            )}
+            {publication.status && (
+              <PublicationStatusView status={publication.status} />
+            )}
+            {publication.loadState === 'error' && publication.error && (
+              <div role="alert" className="space-y-1 text-xs text-destructive">
+                <p>{publication.error.message}</p>
+                {publication.error.recovery && <p>{publication.error.recovery}</p>}
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="secondary"
+                  onClick={() => void publication.refresh()}
+                >
+                  Retry status
+                </Button>
+              </div>
+            )}
           </div>
-          {state !== 'loading' && state !== '就绪' && STATE_GUIDANCE_KEY[state] && (
-            <p className="mt-1 flex-1 text-xs text-text-subtle" data-testid="exit-one-guidance">
-              {t(STATE_GUIDANCE_KEY[state])}
-            </p>
-          )}
 
           {wizardOpen ? (
             <div className="mt-4">
               <PublishWizard
                 client={client}
-                reviewId={reviewId}
-                ghReady={ghReady}
+                reviewIds={[reviewId]}
                 onPublished={onPublished}
-                onJumpToRule={(ruleId) => {
+                onRefreshStatus={publication.refresh}
+                onJumpToReviewIssue={(attributedReviewId, ruleId) => {
                   setWizardOpen(false);
-                  onJumpToRule(ruleId);
+                  onJumpToReviewIssue(attributedReviewId, ruleId);
                 }}
               />
             </div>

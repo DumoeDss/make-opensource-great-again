@@ -3,18 +3,21 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ApiClient } from '../api/client';
-import type { PublishPreflight } from '../api/types';
 import { BatchExitCards, type BatchExitItem } from '../components/journey/BatchExitCards';
+import {
+  blockedStatus,
+  directStatus,
+  existingForkStatus,
+  forkConfirmationStatus,
+  loginRequiredStatus,
+  publicationPreview,
+  unconfiguredStatus,
+} from './publicationFixtures';
 
-afterEach(cleanup);
-
-const READY: PublishPreflight = {
-  dataRepoConfigured: true,
-  gitAvailable: true,
-  ghAvailable: true,
-  ghAuthenticated: true,
-  repoClean: true,
-};
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const ITEMS: BatchExitItem[] = [
   { reviewId: 'r1', sessionId: 's1', title: 'Session 1' },
@@ -32,7 +35,13 @@ const okExport = (sessionId: string) =>
 
 function fakeClient(over: Partial<ApiClient> = {}): ApiClient {
   return {
-    getPreflight: vi.fn(async () => READY),
+    inspectPublication: vi.fn(async () => ({ ok: true as const, data: directStatus() })),
+    previewPublication: vi.fn(async () => ({
+      ok: true as const,
+      data: publicationPreview({
+        contribution: { ...publicationPreview().contribution, recordCount: ITEMS.length },
+      }),
+    })),
     listProviders: vi.fn(async () => []),
     exportReview: vi.fn(async (reviewId: string) => okExport(reviewId)),
     ...over,
@@ -51,18 +60,106 @@ function renderCards(client: ApiClient): ReturnType<typeof render> {
   );
 }
 
-describe('BatchExitCards 出口① preflight card', () => {
-  it('disables 出口① with 需配置 when no data repo is configured', async () => {
-    const client = fakeClient({ getPreflight: vi.fn(async () => ({ ...READY, dataRepoConfigured: false })) });
+describe('BatchExitCards 出口① publication status', () => {
+  it.each([
+    ['login required', loginRequiredStatus(), ['community/dataset', 'main']],
+    [
+      'fork confirmation',
+      forkConfirmationStatus(),
+      ['contributor', 'community/dataset', 'contributor/dataset'],
+    ],
+    [
+      'ready direct',
+      directStatus(),
+      ['contributor', 'community/dataset', 'main', 'a'.repeat(40), 'direct', '7'],
+    ],
+    [
+      'ready existing fork',
+      existingForkStatus(),
+      [
+        'contributor',
+        'community/dataset',
+        'main',
+        'a'.repeat(40),
+        'fork',
+        'contributor/dataset',
+        '7',
+      ],
+    ],
+  ])('shows every required safe compact fact for %s', async (_name, status, facts) => {
+    const client = fakeClient({
+      inspectPublication: vi.fn(async () => ({ ok: true as const, data: status })),
+    });
     const { getByTestId } = renderCards(client);
-    await waitFor(() => expect(getByTestId('batch-exit-one-state').textContent).toContain('需配置'));
+    await waitFor(() =>
+      expect(getByTestId('batch-exit-one-state').textContent).toContain(facts[0]),
+    );
+    const text = getByTestId('batch-exit-one-state').textContent ?? '';
+    for (const fact of facts) expect(text).toContain(fact);
+  });
+
+  it('disables 出口① when no GitHub target is configured', async () => {
+    const client = fakeClient({
+      inspectPublication: vi.fn(async () => ({
+        ok: true as const,
+        data: unconfiguredStatus(),
+      })),
+    });
+    const { getByTestId } = renderCards(client);
+    await waitFor(() =>
+      expect(getByTestId('batch-exit-one-state').textContent).toContain('Unconfigured'),
+    );
     expect((getByTestId('batch-exit-one-cta') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('enables 出口① when everything is 就绪', async () => {
+  it('enables direct ready and fork-confirmation status', async () => {
     const { getByTestId } = renderCards(fakeClient());
-    await waitFor(() => expect(getByTestId('batch-exit-one-state').textContent).toContain('就绪'));
+    await waitFor(() =>
+      expect(getByTestId('batch-exit-one-state').textContent).toContain('Ready · direct'),
+    );
     expect((getByTestId('batch-exit-one-cta') as HTMLButtonElement).disabled).toBe(false);
+    cleanup();
+
+    const forkClient = fakeClient({
+      inspectPublication: vi.fn(async () => ({
+        ok: true as const,
+        data: forkConfirmationStatus(),
+      })),
+    });
+    const fork = renderCards(forkClient);
+    await waitFor(() =>
+      expect(fork.getByTestId('batch-exit-one-state').textContent).toContain(
+        'Fork confirmation required',
+      ),
+    );
+    expect((fork.getByTestId('batch-exit-one-cta') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('uses the shared wizard and sends every queue review ID once', async () => {
+    const client = fakeClient();
+    const { getByTestId, findByTestId } = renderCards(client);
+    await waitFor(() =>
+      expect((getByTestId('batch-exit-one-cta') as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(getByTestId('batch-exit-one-cta'));
+    await findByTestId('publication-preview');
+    expect(client.previewPublication).toHaveBeenCalledWith(['r1', 'r2']);
+    expect(client.previewPublication).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps direct submit and export available while GitHub publication is blocked', async () => {
+    const client = fakeClient({
+      inspectPublication: vi.fn(async () => ({
+        ok: true as const,
+        data: blockedStatus(false),
+      })),
+    });
+    const { getByTestId } = renderCards(client);
+    await waitFor(() =>
+      expect((getByTestId('batch-exit-one-cta') as HTMLButtonElement).disabled).toBe(true),
+    );
+    expect(getByTestId('batch-exit-two')).toBeTruthy();
+    expect((getByTestId('batch-export-all') as HTMLButtonElement).disabled).toBe(false);
   });
 });
 
@@ -71,6 +168,7 @@ describe('BatchExitCards export', () => {
     // jsdom lacks object-URL support; stub it so the blob download path runs.
     (URL as unknown as { createObjectURL: () => string }).createObjectURL = vi.fn(() => 'blob:x');
     (URL as unknown as { revokeObjectURL: () => void }).revokeObjectURL = vi.fn();
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
   });
 
   it('exports each session and surfaces a refused export inline (slice-1 M3)', async () => {

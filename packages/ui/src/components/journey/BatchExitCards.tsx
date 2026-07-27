@@ -3,9 +3,8 @@
  * `BatchExitSummary`. Layout mirrors the single `ExitCards` (two exit cards + a
  * low-key export under a divider), but every exit is batch-wide:
  *
- *   出口① — a preflight-driven state card (same 就绪/需配置/缺依赖/gh未登录 mapping +
- *           guidance copy as the single card) that opens the `BatchPublishWizard`
- *           (N records → one branch/one PR).
+ *   出口① — the same daemon-owned target status and `PublishWizard` as a
+ *           one-review journey (N records → one branch/one PR).
  *   出口② — the `BatchSubmitPanel` (aggregate estimate + per-item content-bound
  *           consent, sequential submit with per-item receipts/retry).
  *   导出   — 「导出全部脱敏文件」 + per-item downloads: `exportReview` per review, a
@@ -14,17 +13,21 @@
  *           export renders inline per item and writes no file.
  *
  * EITHER exit completes the journey (`onPublished` / `onSubmittedAll` → 已完成).
- * `ExitCards`/`PublishWizard`/`SubmitPanel` stay frozen — this is a parallel file.
+ * Single and batch differ only in the `reviewIds` selection and surrounding copy.
  */
 import { Download, Send, UploadCloud } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { ApiClient } from '../../api/client';
-import { usePreflight } from '../../lib/usePreflight';
+import { usePublication } from '../../lib/usePublication';
+import {
+  canPreviewPublication,
+  PublicationStatusView,
+} from '../publication/PublicationStatusView';
 import { Button } from '../ui/button';
-import { BatchPublishWizard } from './BatchPublishWizard';
 import { BatchSubmitPanel } from './BatchSubmitPanel';
+import { PublishWizard } from './PublishWizard';
 
 /** A signed review reaching the batch exit step. */
 export interface BatchExitItem {
@@ -42,20 +45,13 @@ interface BatchExitCardsProps {
   /** Every 批量出口② direct-submit succeeded → the journey's 已完成 state. */
   onSubmittedAll: () => void;
   /** From the wizard's `precheck_refused` view: jump back to a session's step ②. */
-  onJumpToSession: (reviewId: string, ruleId: string) => void;
+  onJumpToSession: (reviewId: string, ruleId?: string) => void;
   /**
    * Gate the first batch exit action behind the one-time donation confirm (B3).
    * Optional so the cards stay independently usable — defaults to running directly.
    */
   requireAffirm?: (proceed: () => void) => void;
 }
-
-/** Guidance text for each non-ready preflight state (mirrors the single ExitCards). */
-const STATE_GUIDANCE_KEY: Record<string, string> = {
-  需配置: 'exit.guidanceNeedsConfig',
-  缺依赖: 'exit.guidanceMissingDeps',
-  gh未登录: 'exit.guidanceGhUnauth',
-};
 
 export function BatchExitCards({
   client,
@@ -69,19 +65,16 @@ export function BatchExitCards({
   const [wizardOpen, setWizardOpen] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
-  const { state, flags } = usePreflight(client);
+  const publication = usePublication(client);
 
   // Route an exit action through the donation confirm if provided, else run it.
   const guard = requireAffirm ?? ((proceed: () => void) => proceed());
 
-  const ghReady = !!(flags?.ghAvailable && flags?.ghAuthenticated);
-  const canPublish = state === '就绪' || state === 'gh未登录';
+  const canPublish =
+    publication.loadState === 'loaded' &&
+    canPreviewPublication(publication.status);
   const ctaLabel =
-    state === 'loading'
-      ? t('exit.ctaProbing')
-      : state === 'gh未登录'
-        ? t('exit.ctaManualPublish')
-        : t('exit.ctaPublish');
+    publication.loadState === 'loading' ? 'Checking target…' : 'Preview public PR';
   const reviewIds = items.map((i) => i.reviewId);
 
   const download = async (item: BatchExitItem): Promise<void> => {
@@ -117,7 +110,7 @@ export function BatchExitCards({
   return (
     <div className="space-y-4" data-testid="batch-exit-cards">
       <div className="grid gap-4 md:grid-cols-2">
-        {/* 批量出口① — preflight-driven state card + inline batch publish wizard. */}
+        {/* 批量出口① — shared status and publication wizard. */}
         <section
           className="flex flex-col rounded-lg border border-border bg-surface-1 p-5"
           data-testid="batch-exit-one"
@@ -130,29 +123,37 @@ export function BatchExitCards({
             {t('batchExit.oneDescription', { count: items.length })}
           </p>
 
-          <div className="mt-2 text-xs" data-testid="batch-exit-one-state">
-            <span
-              className={
-                state === '就绪' ? 'text-success' : state === 'loading' ? 'text-text-subtle' : 'text-warning'
-              }
-            >
-              {t('exit.stateLabel', { state: state === 'loading' ? t('exit.stateProbing') : state })}
-            </span>
+          <div className="mt-3 flex-1" data-testid="batch-exit-one-state" aria-live="polite">
+            {publication.loadState === 'loading' && (
+              <p className="text-xs text-text-subtle">Loading GitHub target status…</p>
+            )}
+            {publication.status && (
+              <PublicationStatusView status={publication.status} />
+            )}
+            {publication.loadState === 'error' && publication.error && (
+              <div role="alert" className="space-y-1 text-xs text-destructive">
+                <p>{publication.error.message}</p>
+                {publication.error.recovery && <p>{publication.error.recovery}</p>}
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="secondary"
+                  onClick={() => void publication.refresh()}
+                >
+                  Retry status
+                </Button>
+              </div>
+            )}
           </div>
-          {state !== 'loading' && state !== '就绪' && STATE_GUIDANCE_KEY[state] && (
-            <p className="mt-1 flex-1 text-xs text-text-subtle" data-testid="batch-exit-one-guidance">
-              {t(STATE_GUIDANCE_KEY[state])}
-            </p>
-          )}
 
           {wizardOpen ? (
             <div className="mt-4">
-              <BatchPublishWizard
+              <PublishWizard
                 client={client}
                 reviewIds={reviewIds}
-                ghReady={ghReady}
                 onPublished={onPublished}
-                onJumpToSession={(reviewId, ruleId) => {
+                onRefreshStatus={publication.refresh}
+                onJumpToReviewIssue={(reviewId, ruleId) => {
                   setWizardOpen(false);
                   onJumpToSession(reviewId, ruleId);
                 }}

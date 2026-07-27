@@ -6,16 +6,14 @@ import type { ApiClient } from '../api/client';
 import type { QueueItem, SanitizationReport, SessionRef } from '../api/types';
 import { ReviewView } from '../components/ReviewView';
 import { makeFinding, makeNonText, makeReport } from './_fixtures';
+import {
+  directStatus,
+  publicationError,
+  publicationPreview,
+  publicationReceipt,
+} from './publicationFixtures';
 
 afterEach(cleanup);
-
-const READY = {
-  dataRepoConfigured: true,
-  gitAvailable: true,
-  ghAvailable: true,
-  ghAuthenticated: true,
-  repoClean: true,
-};
 
 /** A fully-typed ApiClient stub; override only the methods a test exercises. */
 function fakeClient(over: Partial<ApiClient> = {}): ApiClient {
@@ -33,19 +31,11 @@ function fakeClient(over: Partial<ApiClient> = {}): ApiClient {
     listProviders: vi.fn(async () => []),
     estimateSubmit: vi.fn(),
     submit: vi.fn(),
-    getPreflight: vi.fn(async () => ({
-      dataRepoConfigured: false,
-      gitAvailable: true,
-      ghAvailable: false,
-      ghAuthenticated: false,
-      repoClean: true,
-    })),
-    publishPlan: vi.fn(),
-    publishStage: vi.fn(),
-    publishSubmit: vi.fn(),
-    publishBatchPlan: vi.fn(),
-    publishBatchStage: vi.fn(),
-    publishBatchSubmit: vi.fn(),
+    inspectPublication: vi.fn(async () => ({ ok: true as const, data: directStatus() })),
+    configurePublicationTarget: vi.fn(),
+    clearPublicationTarget: vi.fn(),
+    previewPublication: vi.fn(),
+    submitPublication: vi.fn(),
     ...over,
   } as ApiClient;
 }
@@ -296,45 +286,51 @@ describe('ReviewView queue triage + auto-advance (N>1)', () => {
 });
 
 describe('ReviewView batch exit (N>1)', () => {
-  const PLAN = {
-    branch: 'contrib/USER_1/batch-abcd1234',
-    targetBranch: 'main',
-    prTitle: 'Add 2 sanitized sessions (<USER_1>)',
-    prBody: '## batch',
-    commitMessage: 'Add 2',
-    recordCount: 2,
-    ghAvailable: true,
-    stagedFiles: ['a.jsonl'],
-    commands: ['git checkout -b contrib/USER_1/batch-abcd1234'],
-    engine: {},
-    compareUrl: null,
-    totalRecordBytes: 42,
-    records: [
-      { sessionId: 'sess-a', recordPath: 'a.jsonl', provenancePath: 'a.provenance.json', recordBytes: 21, contentHash: 'a'.repeat(64), messages: 2 },
-      { sessionId: 'sess-b', recordPath: 'b.jsonl', provenancePath: 'b.provenance.json', recordBytes: 21, contentHash: 'b'.repeat(64), messages: 3 },
-    ],
-  };
-
   const twoCleared = () => many(makeReport([cf()]), makeReport([cf()]));
 
   it('gates the batch wizard behind the affirm dialog, then a refusal jump stays void-guarded', async () => {
     const setDisposition = vi.fn(async () => {
-      const r = makeReport([makeFinding({ id: 'fx', disposition: 'delete' })]);
+      const r = makeReport([
+        makeFinding({
+          id: 'fx',
+          layer: 'custom',
+          ruleId: 'custom-rule',
+          disposition: 'delete',
+        }),
+      ]);
       return { report: r, gate: r.gate };
     });
     const client = fakeClient({
       setDisposition,
-      getPreflight: vi.fn(async () => READY),
-      publishBatchPlan: vi.fn(async () => ({
+      previewPublication: vi.fn(async () => ({
         ok: false as const,
-        error: 'refused',
-        code: 'precheck_refused',
-        blockingBySession: [
-          { reviewId: 'r1', sessionId: 'sess-test', blockingByRule: [{ ruleId: 'aws-access-token', count: 1 }] },
-        ],
+        error: publicationError({
+          code: 'precheck_refused',
+          phase: 'preview',
+          retryable: false,
+          message: 'Publication pre-check refused the selection.',
+          refusals: [
+            {
+              reviewId: 'r1',
+              sessionId: 'sess-test',
+              blockingByRule: { 'custom-rule': 1 },
+            },
+          ],
+        }),
       })),
     });
-    const { getByTestId, findByTestId } = render(<ReviewView client={client} items={twoCleared()} />);
+    const items = many(
+      makeReport([
+        makeFinding({
+          id: 'fx',
+          layer: 'custom',
+          ruleId: 'custom-rule',
+          disposition: 'replace',
+        }),
+      ]),
+      makeReport([cf()]),
+    );
+    const { getByTestId, findByTestId } = render(<ReviewView client={client} items={items} />);
 
     fireEvent.click(getByTestId('goto-step-3'));
     await waitFor(() => expect((getByTestId('batch-exit-one-cta') as HTMLButtonElement).disabled).toBe(false));
@@ -342,27 +338,34 @@ describe('ReviewView batch exit (N>1)', () => {
     expect(getByTestId('affirm-dialog')).toBeTruthy();
     fireEvent.click(getByTestId('affirm-confirm'));
 
-    const jump = await findByTestId('jump-to-session-r1-aws-access-token');
+    const jump = await findByTestId('jump-to-review-rule-r1-custom-rule');
     fireEvent.click(jump);
     expect(getByTestId('queue-bar').textContent).toContain('会话 1/2');
+    await waitFor(() =>
+      expect(getByTestId('group-custom').getAttribute('aria-current')).toBe('true'),
+    );
 
     fireEvent.click(getByTestId('disp-fx-delete'));
-    expect(screen.getByTestId('dialog-confirm')).toBeTruthy();
-    expect(setDisposition).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(setDisposition).toHaveBeenCalledWith('r1', 'fx', 'delete'),
+    );
+
+    fireEvent.click(getByTestId('goto-step-3'));
+    await waitFor(() =>
+      expect((getByTestId('batch-exit-one-cta') as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(getByTestId('batch-exit-one-cta'));
+    expect(screen.getByTestId('affirm-dialog')).toBeTruthy();
   });
 
   it('a successful batch publish marks the journey 已完成', async () => {
+    const preview = publicationPreview({
+      contribution: { ...publicationPreview().contribution, recordCount: 2 },
+    });
+    const receipt = publicationReceipt({ recordCount: 2 });
     const client = fakeClient({
-      getPreflight: vi.fn(async () => READY),
-      publishBatchPlan: vi.fn(async () => ({ ok: true as const, plan: PLAN })),
-      publishBatchSubmit: vi.fn(async () => ({
-        ok: true as const,
-        result: {
-          opened: true as const,
-          branch: PLAN.branch,
-          receipt: { branch: PLAN.branch, targetBranch: 'main', prTitle: PLAN.prTitle, compareUrl: null, submittedAt: 'x', recordCount: 2 },
-        },
-      })),
+      previewPublication: vi.fn(async () => ({ ok: true as const, data: preview })),
+      submitPublication: vi.fn(async () => ({ ok: true as const, data: receipt })),
     });
     const { getByTestId, findByTestId } = render(<ReviewView client={client} items={twoCleared()} />);
 
@@ -370,12 +373,18 @@ describe('ReviewView batch exit (N>1)', () => {
     await waitFor(() => expect((getByTestId('batch-exit-one-cta') as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(getByTestId('batch-exit-one-cta'));
     fireEvent.click(getByTestId('affirm-confirm'));
-    await findByTestId('batch-wizard-step-preview');
-    fireEvent.click(getByTestId('batch-wizard-to-submit'));
-    fireEvent.click(await findByTestId('batch-wizard-submit-btn'));
+    await findByTestId('publication-preview');
+    fireEvent.click(getByTestId('wizard-open-confirmation'));
+    fireEvent.click(await findByTestId('publication-confirm-ok-btn'));
 
-    await findByTestId('batch-published-badge');
-    expect(client.publishBatchSubmit).toHaveBeenCalledWith(['r1', 'r2']);
+    await findByTestId('publication-receipt');
+    expect(client.previewPublication).toHaveBeenCalledWith(['r1', 'r2']);
+    expect(client.submitPublication).toHaveBeenCalledWith({
+      publicationRef: preview.publicationRef,
+      targetRevision: preview.target.revision,
+      contentDigest: preview.contribution.contentDigest,
+      confirmPublic: true,
+    });
     await waitFor(() => expect(getByTestId('lock-badge').textContent).toContain('已完成'));
   });
 });

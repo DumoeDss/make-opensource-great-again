@@ -1,11 +1,16 @@
 import fs from 'node:fs';
 import http from 'node:http';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { isLoopbackHost } from '../app.js';
+import {
+  PublicationError,
+  type GitHubPublication,
+} from '../publication/index.js';
 import { DEFAULT_MAX_REVIEWS } from '../reviews.js';
 import { FAKE_AWS_KEY, makeTempDir, rm, secretTurn, withServer, writeSession } from './_helpers.js';
 
@@ -13,11 +18,18 @@ import { FAKE_AWS_KEY, makeTempDir, rm, secretTurn, withServer, writeSession } f
 function rawGet(
   port: number,
   reqPath: string,
-  host: string,
+  host?: string,
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = http.request(
-      { host: '127.0.0.1', port, path: reqPath, method: 'GET', headers: { host } },
+      {
+        host: '127.0.0.1',
+        port,
+        path: reqPath,
+        method: 'GET',
+        setHost: host !== undefined,
+        headers: host === undefined ? {} : { host },
+      },
       (res) => {
         let body = '';
         res.on('data', (c) => (body += c));
@@ -36,6 +48,29 @@ async function createReview(base: string): Promise<string> {
     body: JSON.stringify({ sourceId: 'claude-code', projectKey: 'projX', sessionId: 'sess-x' }),
   });
   return ((await res.json()) as { reviewId: string }).reviewId;
+}
+
+function rawHttp10WithoutHost(port: number): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(
+      { host: '127.0.0.1', port },
+      () => socket.write('GET /api/health HTTP/1.0\r\n\r\n'),
+    );
+    let response = '';
+    socket.setEncoding('utf8');
+    socket.on('data', (chunk) => {
+      response += chunk;
+    });
+    socket.on('end', () => {
+      const match = /^HTTP\/1\.[01] ([0-9]{3})/.exec(response);
+      if (!match) {
+        reject(new Error('invalid raw HTTP response'));
+        return;
+      }
+      resolve(Number(match[1]));
+    });
+    socket.on('error', reject);
+  });
 }
 
 describe('daemon security hardening', () => {
@@ -96,6 +131,8 @@ describe('daemon security hardening', () => {
 
       const localhost = await rawGet(daemon.port, '/api/health', `localhost:${daemon.port}`);
       expect(localhost.status).toBe(200);
+
+      expect(await rawHttp10WithoutHost(daemon.port)).toBe(403);
     });
   });
 
@@ -103,10 +140,13 @@ describe('daemon security hardening', () => {
     expect(isLoopbackHost('127.0.0.1:8899')).toBe(true);
     expect(isLoopbackHost('localhost:8899')).toBe(true);
     expect(isLoopbackHost('[::1]:8899')).toBe(true);
-    expect(isLoopbackHost(undefined)).toBe(true);
+    expect(isLoopbackHost(undefined)).toBe(false);
     expect(isLoopbackHost('evil.example.com')).toBe(false);
     expect(isLoopbackHost('127.0.0.1.evil.com')).toBe(false);
     expect(isLoopbackHost('169.254.1.1')).toBe(false);
+    expect(isLoopbackHost('localhost:not-a-port')).toBe(false);
+    expect(isLoopbackHost('127.0.0.1:0')).toBe(false);
+    expect(isLoopbackHost('[::1]:65536')).toBe(false);
   });
 
   // MINOR M-3: /preview must not return the raw text of still-pending findings.
@@ -114,7 +154,10 @@ describe('daemon security hardening', () => {
     await withServer({ homeDir: home }, async (base) => {
       const reviewId = await createReview(base);
       const preview = (await (
-        await fetch(`${base}/api/reviews/${reviewId}/preview`, { method: 'POST' })
+        await fetch(`${base}/api/reviews/${reviewId}/preview`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+        })
       ).json()) as { session: unknown; stamped: boolean };
       const text = JSON.stringify(preview.session);
       expect(text).not.toContain(FAKE_AWS_KEY);
@@ -140,5 +183,120 @@ describe('daemon security hardening', () => {
 
   it('exposes a sane default review cap', () => {
     expect(DEFAULT_MAX_REVIEWS).toBeGreaterThan(0);
+  });
+
+  it('requires same-origin JSON for every mutating route family and sends no CORS headers', async () => {
+    const configure = vi.fn(async () => ({ state: 'unconfigured' as const, revision: 1 }));
+    const publication: GitHubPublication = {
+      inspect: async () => ({ state: 'unconfigured', revision: 0 }),
+      configure,
+      clear: async () => ({ state: 'unconfigured', revision: 2 }),
+      preview: async () => {
+        throw new Error('route should not be reached');
+      },
+      submit: async () => {
+        throw new Error('route should not be reached');
+      },
+    };
+    await withServer({ homeDir: home, publication }, async (base) => {
+      const nonJsonPaths: Array<[string, string]> = [
+        ['POST', '/api/reviews'],
+        ['POST', '/api/reviews/missing/submit'],
+        ['PUT', '/api/provider-keys/provider'],
+        ['PUT', '/api/publish/target'],
+        ['DELETE', '/api/publish/target'],
+        ['POST', '/api/publish/preview'],
+        ['POST', '/api/publish/submit'],
+      ];
+      for (const [method, route] of nonJsonPaths) {
+        const response = await fetch(`${base}${route}`, { method });
+        expect(response.status, `${method} ${route}`).toBe(415);
+        expect(response.headers.get('access-control-allow-origin')).toBeNull();
+      }
+
+      const matching = await fetch(`${base}/api/publish/target`, {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          origin: base,
+          'sec-fetch-site': 'same-origin',
+        },
+        body: JSON.stringify({ repository: 'owner/repo' }),
+      });
+      expect(matching.status).toBe(200);
+      expect(configure).toHaveBeenCalledOnce();
+
+      for (const headers of [
+        { origin: 'null' },
+        { origin: `${base}0` },
+        { origin: base.replace('http:', 'https:') },
+        { 'sec-fetch-site': 'cross-site' },
+      ]) {
+        const response = await fetch(`${base}/api/publish/target`, {
+          method: 'PUT',
+          headers: {
+            'content-type': 'application/json',
+            ...headers,
+          },
+          body: JSON.stringify({ repository: 'owner/repo' }),
+        });
+        expect(response.status).toBe(403);
+        expect(response.headers.get('access-control-allow-origin')).toBeNull();
+      }
+      expect(configure).toHaveBeenCalledOnce();
+    });
+  });
+
+  it('never serializes sensitive unexpected or publication error text', async () => {
+    const sensitive =
+      'ghp_FAKE C:\\Users\\alice\\private git push stdout=LEAK stderr=LEAK';
+    const methods = {
+      configure: async () => ({ state: 'unconfigured' as const, revision: 0 }),
+      clear: async () => ({ state: 'unconfigured' as const, revision: 0 }),
+      preview: async () => {
+        throw new Error(sensitive);
+      },
+      submit: async () => {
+        throw new Error(sensitive);
+      },
+    };
+    const unexpected: GitHubPublication = {
+      inspect: async () => {
+        throw new Error(sensitive);
+      },
+      ...methods,
+    };
+    await withServer({ publication: unexpected }, async (base) => {
+      const response = await fetch(`${base}/api/publish`);
+      expect(response.status).toBe(500);
+      const body = await response.text();
+      expect(body).toContain('INTERNAL_ERROR');
+      for (const canary of ['ghp_FAKE', 'C:\\Users', 'git push', 'stdout', 'stderr']) {
+        expect(body).not.toContain(canary);
+      }
+    });
+
+    const known: GitHubPublication = {
+      inspect: async () => {
+        throw new PublicationError({
+          code: 'github_unavailable',
+          phase: 'target',
+          message: sensitive,
+          retryable: true,
+          recovery: sensitive,
+          gate: { sensitive },
+        });
+      },
+      ...methods,
+    };
+    await withServer({ publication: known }, async (base) => {
+      const response = await fetch(`${base}/api/publish`);
+      expect(response.status).toBe(503);
+      const body = await response.text();
+      expect(body).toContain('GitHub is temporarily unavailable.');
+      for (const canary of ['ghp_FAKE', 'C:\\Users', 'git push', 'stdout', 'stderr']) {
+        expect(body).not.toContain(canary);
+      }
+    });
   });
 });

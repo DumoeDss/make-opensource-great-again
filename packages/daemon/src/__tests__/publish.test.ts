@@ -1,368 +1,352 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { AsyncCommandRunner, RunResult } from '@mosga/publisher';
-import type { SanitizationReport } from '@mosga/sanitizer';
+import type {
+  GitCommitIdentity,
+  GitHubPublication,
+  PrepareWorkspaceInput,
+  PreparedWorkspace,
+  PublicationReceipt,
+  PushResult,
+  RecoverWorkspaceInput,
+} from '../publication/index.js';
+import type { GitWorkspacePort } from '../publication/index.js';
+import {
+  InMemoryPublicationJournalStore,
+  InMemoryPublicationLock,
+  InMemoryPublicationReceiptStore,
+  InMemoryPublicationTargetStore,
+  InMemorySealedPreviewStore,
+  RecordingGitHubPort,
+} from '../publication/index.js';
+import {
+  FAKE_AWS_KEY,
+  makeTempDir,
+  plainTurn,
+  rm,
+  withServer,
+  writeSession,
+} from './_helpers.js';
 
-import { makeTempDir, plainTurn, rm, secretTurn, withServer, writeSession } from './_helpers.js';
+const NOW = '2026-07-27T00:00:00.000Z';
 
-const NOW = '2026-07-09T00:00:00.000Z';
-
-interface Created {
-  reviewId: string;
-  report: SanitizationReport;
+function json(method: string, body?: unknown): RequestInit {
+  return {
+    method,
+    headers: { 'content-type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  };
 }
 
-/**
- * A fully-configurable fake async git/gh runner: it records every command and
- * returns canned results — NO real git, gh, network, or disk mutation. A
- * `hold` gate lets a test freeze the first mutating command to exercise the
- * single-flight mutex deterministically.
- */
-class FakeAsyncRunner implements AsyncCommandRunner {
-  calls: Array<{ command: string; args: string[] }> = [];
-  git = true;
-  gh = true;
-  ghAuthed = true;
-  dirty = false;
-  existingBranches = new Set<string>();
-  remoteUrl: string | null = 'git@github.com:mosga/data.git';
-  pushRejected = false;
+class LocalRecordingWorkspace implements GitWorkspacePort {
+  readonly calls: string[] = [];
+  private readonly identity = {
+    commitSha: 'c'.repeat(40),
+    treeSha: 'd'.repeat(40),
+  };
 
-  private held?: { promise: Promise<void>; release: () => void };
-
-  /** Arm a one-shot gate that blocks the next `git --version` until released. */
-  hold(): () => void {
-    let release!: () => void;
-    const promise = new Promise<void>((r) => {
-      release = r;
-    });
-    this.held = { promise, release };
-    return release;
+  async prepare(input: PrepareWorkspaceInput): Promise<PreparedWorkspace> {
+    this.calls.push('prepare');
+    return this.value(input);
   }
 
-  async runAsync(command: string, args: string[]): Promise<RunResult> {
-    this.calls.push({ command, args });
-    if (command === 'git' && args[0] === '--version') {
-      if (this.held) {
-        const gate = this.held;
-        this.held = undefined;
-        await gate.promise;
-      }
-      return { code: this.git ? 0 : 127, stdout: 'git version 2', stderr: '' };
-    }
-    if (command === 'gh' && args[0] === '--version') {
-      return { code: this.gh ? 0 : 127, stdout: '', stderr: '' };
-    }
-    if (command === 'gh' && args[0] === 'auth' && args[1] === 'status') {
-      return { code: this.gh && this.ghAuthed ? 0 : 1, stdout: '', stderr: '' };
-    }
-    if (command === 'git' && args[0] === 'status') {
-      return { code: 0, stdout: this.dirty ? ' M some-file\n' : '', stderr: '' };
-    }
-    if (command === 'git' && args[0] === 'show-ref') {
-      const ref = args[args.length - 1];
-      const branch = ref.replace('refs/heads/', '');
-      return { code: this.existingBranches.has(branch) ? 0 : 1, stdout: '', stderr: '' };
-    }
-    if (command === 'git' && args[0] === 'remote' && args[1] === 'get-url') {
-      if (this.remoteUrl === null) return { code: 1, stdout: '', stderr: 'no origin' };
-      return { code: 0, stdout: `${this.remoteUrl}\n`, stderr: '' };
-    }
-    if (command === 'git' && args[0] === 'push') {
-      return this.pushRejected
-        ? { code: 1, stdout: '', stderr: 'rejected' }
-        : { code: 0, stdout: '', stderr: '' };
-    }
-    // checkout / add / commit / gh pr create — succeed.
-    return { code: 0, stdout: '', stderr: '' };
+  async recover(input: RecoverWorkspaceInput): Promise<PreparedWorkspace> {
+    this.calls.push('recover');
+    return this.value(input);
   }
-}
 
-async function createReview(base: string, projectKey: string): Promise<Created> {
-  return (await (
-    await fetch(`${base}/api/reviews`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sourceId: 'claude-code', projectKey, sessionId: `sess-${projectKey}` }),
-    })
-  ).json()) as Created;
-}
-
-/** Dispose every blocking finding + non-text item, unlocking the gate. */
-async function unlock(base: string, r: Created, disposition = 'replace'): Promise<void> {
-  for (const f of r.report.findings.filter((x) => x.blocking)) {
-    await fetch(`${base}/api/reviews/${r.reviewId}/findings/${f.id}/disposition`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ disposition }),
-    });
+  async write(): Promise<void> {
+    this.calls.push('write');
   }
-  for (const n of r.report.nonTextItems) {
-    await fetch(`${base}/api/reviews/${r.reviewId}/nontext/${n.messageUuid}/disposition`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ disposition: 'remove' }),
-    });
+
+  async commit(): Promise<GitCommitIdentity> {
+    this.calls.push('commit');
+    return this.identity;
+  }
+
+  async push(): Promise<PushResult> {
+    this.calls.push('push');
+    return { state: 'pushed', ...this.identity };
+  }
+
+  private value(input: PrepareWorkspaceInput): PreparedWorkspace {
+    return {
+      paths: {
+        root: input.managedRoot,
+        cache: 'private',
+        worktree: 'private',
+        marker: 'private',
+      },
+      marker: {
+        schemaVersion: 1,
+        publicationRef: input.publicationRef,
+        repositoryId: input.repositoryId,
+      },
+      baseCommitSha: input.baseCommitSha,
+      branch: input.branch,
+    };
   }
 }
 
-const post = (base: string, url: string): Promise<Response> =>
-  fetch(`${base}${url}`, { method: 'POST', headers: { 'content-type': 'application/json' } });
-
-describe('出口① publish routes', () => {
+describe('canonical publication HTTP routes', () => {
   let home: string;
   let cwd: string;
-  let dataRepo: string;
+  let publicationRoot: string;
 
   beforeEach(() => {
-    home = makeTempDir('mosga-home-');
-    cwd = makeTempDir('mosga-cwd-');
-    dataRepo = makeTempDir('mosga-datarepo-');
-    // A session that unlocks to CLEAN bytes when the secret is REPLACED.
-    writeSession(home, 'projX', 'sess-projX', cwd, [secretTurn('u1'), plainTurn('u2', 'all good now')]);
+    home = makeTempDir('mosga-publish-home-');
+    cwd = makeTempDir('mosga-publish-cwd-');
+    publicationRoot = makeTempDir('mosga-publish-managed-');
+    writeSession(home, 'projX', 'sess-x', cwd, [
+      plainTurn('message-1', 'clean contribution'),
+    ]);
   });
 
   afterEach(() => {
     rm(home);
     rm(cwd);
-    rm(dataRepo);
+    rm(publicationRoot);
   });
 
-  it('GET /api/publish/preflight reports the five capability flags', async () => {
-    const runner = new FakeAsyncRunner();
-    runner.gh = true;
-    runner.ghAuthed = false;
-    await withServer({ homeDir: home, dataRepoPath: dataRepo, publishRunner: runner }, async (base) => {
-      const res = await fetch(`${base}/api/publish/preflight`);
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as Record<string, boolean>;
-      expect(body).toEqual({
-        dataRepoConfigured: true,
-        gitAvailable: true,
-        ghAvailable: true,
-        ghAuthenticated: false,
-        repoClean: true,
-      });
-      // The literal path is NEVER echoed over HTTP.
-      expect(JSON.stringify(body)).not.toContain(dataRepo);
+  it('supports configure/status/clear and strict request schemas', async () => {
+    const calls: string[] = [];
+    const receipt: PublicationReceipt = {
+      publicationRef: 'publication_1',
+      targetRevision: 1,
+      upstream: 'owner/repo',
+      pushRepository: 'owner/repo',
+      mode: 'direct',
+      baseBranch: 'main',
+      baseCommitSha: 'a'.repeat(40),
+      branch: 'contrib/test/abcdef12',
+      commitSha: 'c'.repeat(40),
+      prNumber: 1,
+      prUrl: 'https://github.com/owner/repo/pull/1',
+      recordCount: 1,
+      contentDigest: 'e'.repeat(64),
+      submittedAt: NOW,
+    };
+    const publication: GitHubPublication = {
+      async inspect() {
+        calls.push('inspect');
+        return { state: 'unconfigured', revision: 0 };
+      },
+      async configure(input) {
+        calls.push(`configure:${input.repository}`);
+        return { state: 'unconfigured', revision: 1 };
+      },
+      async clear() {
+        calls.push('clear');
+        return { state: 'unconfigured', revision: 2 };
+      },
+      async preview(input) {
+        calls.push(`preview:${input.reviewIds.join(',')}`);
+        throw new Error('not reached by this contract test');
+      },
+      async submit() {
+        calls.push('submit');
+        return receipt;
+      },
+    };
+    await withServer({ homeDir: home, publication }, async (base) => {
+      expect((await fetch(`${base}/api/publish`)).status).toBe(200);
+      const configured = await fetch(
+        `${base}/api/publish/target`,
+        json('PUT', { repository: 'owner/repo' }),
+      );
+      expect(configured.status).toBe(200);
+      const extraTarget = await fetch(
+        `${base}/api/publish/target`,
+        json('PUT', { repository: 'owner/repo', workspace: 'C:\\private' }),
+      );
+      expect(extraTarget.status).toBe(400);
+      const invalidSubmit = await fetch(
+        `${base}/api/publish/submit`,
+        json('POST', {
+          publicationRef: 'publication_1',
+          targetRevision: 1,
+          contentDigest: 'e'.repeat(64),
+          confirmPublic: true,
+          token: 'fake-token',
+        }),
+      );
+      expect(invalidSubmit.status).toBe(400);
+      expect(
+        (
+          await fetch(`${base}/api/publish/target`, json('DELETE'))
+        ).status,
+      ).toBe(200);
     });
+    expect(calls).toEqual(['inspect', 'configure:owner/repo', 'clear']);
   });
 
-  it('preflight reports dataRepoConfigured:false when no data repo is set', async () => {
-    const runner = new FakeAsyncRunner();
-    await withServer({ homeDir: home, publishRunner: runner }, async (base) => {
-      const body = (await (await fetch(`${base}/api/publish/preflight`)).json()) as Record<string, boolean>;
-      expect(body.dataRepoConfigured).toBe(false);
-      expect(body.repoClean).toBe(false);
-    });
-  });
-
-  it('plan is 409 while the gate is locked', async () => {
-    const runner = new FakeAsyncRunner();
-    await withServer({ homeDir: home, dataRepoPath: dataRepo, publishRunner: runner }, async (base) => {
-      const r = await createReview(base, 'projX');
-      const res = await post(base, `/api/reviews/${r.reviewId}/publish/plan`);
-      expect(res.status).toBe(409);
-      const body = (await res.json()) as { code: string };
-      expect(body.code).toBe('GATE_LOCKED');
-    });
-  });
-
-  it('plan returns the UI-safe subset (compareUrl + record summary, no record bytes)', async () => {
-    const runner = new FakeAsyncRunner();
-    runner.remoteUrl = 'git@github.com:mosga/data.git';
+  it('runs one real review through preview and confirmed submit with fake GitHub/workspace ports', async () => {
+    const targets = new InMemoryPublicationTargetStore();
+    await targets.configure({ owner: 'owner', repo: 'repo' });
+    const github = new RecordingGitHubPort();
+    const workspace = new LocalRecordingWorkspace();
     await withServer(
-      { homeDir: home, now: NOW, dataRepoPath: dataRepo, publishRunner: runner },
+      {
+        homeDir: home,
+        now: NOW,
+        publicationRoot,
+        publicationTargetStore: targets,
+        publicationPreviews: new InMemorySealedPreviewStore({
+          id: () => 'publication_http',
+          now: () => new Date(NOW),
+        }),
+        publicationJournals: new InMemoryPublicationJournalStore(),
+        publicationReceipts: new InMemoryPublicationReceiptStore(),
+        publicationLock: new InMemoryPublicationLock(),
+        publicationGitHub: github,
+        publicationWorkspace: workspace,
+      },
       async (base) => {
-        const r = await createReview(base, 'projX');
-        await unlock(base, r, 'replace');
-        const res = await post(base, `/api/reviews/${r.reviewId}/publish/plan`);
-        expect(res.status).toBe(200);
-        const raw = await res.text();
-        const body = JSON.parse(raw) as Record<string, unknown>;
-        expect(body.branch).toBe('contrib/USER_1/sess-projX');
-        expect(body.recordBytes).toBeGreaterThan(0);
-        expect(body.contentHash).toMatch(/^[0-9a-f]{64}$/);
-        expect(body.compareUrl).toBe(
-          'https://github.com/mosga/data/compare/main...contrib/USER_1/sess-projX?expand=1',
+        const reviewResponse = await fetch(
+          `${base}/api/reviews`,
+          json('POST', {
+            sourceId: 'claude-code',
+            projectKey: 'projX',
+            sessionId: 'sess-x',
+          }),
         );
-        // The serialized record bytes are EXCLUDED from the UI-safe subset.
-        expect(body).not.toHaveProperty('record');
-        expect(Object.keys(body)).toEqual(
-          expect.arrayContaining(['prBody', 'prTitle', 'stagedFiles', 'commands', 'provenance', 'engine']),
+        expect(reviewResponse.status).toBe(201);
+        const reviewId = ((await reviewResponse.json()) as { reviewId: string })
+          .reviewId;
+
+        const previewResponse = await fetch(
+          `${base}/api/publish/preview`,
+          json('POST', { reviewIds: [reviewId] }),
         );
+        expect(previewResponse.status).toBe(201);
+        const preview = (await previewResponse.json()) as {
+          publicationRef: string;
+          target: { revision: number };
+          contribution: { contentDigest: string; recordCount: number };
+        };
+        expect(preview.contribution.recordCount).toBe(1);
+
+        const submitResponse = await fetch(
+          `${base}/api/publish/submit`,
+          json('POST', {
+            publicationRef: preview.publicationRef,
+            targetRevision: preview.target.revision,
+            contentDigest: preview.contribution.contentDigest,
+            confirmPublic: true,
+          }),
+        );
+        expect(submitResponse.status).toBe(200);
+        const body = await submitResponse.text();
+        const receipt = JSON.parse(body) as PublicationReceipt;
+        expect(receipt).toMatchObject({
+          upstream: 'owner/repo',
+          pushRepository: 'owner/repo',
+          prNumber: 1,
+          recordCount: 1,
+        });
+        expect(body).not.toContain('contents');
+        expect(body).not.toContain(publicationRoot);
       },
     );
+    expect(workspace.calls).toEqual([
+      'prepare',
+      'write',
+      'commit',
+      'recover',
+      'recover',
+      'push',
+    ]);
+    expect(
+      github.calls.filter((call) => call.operation === 'createPullRequest'),
+    ).toHaveLength(1);
   });
 
-  it('plan compareUrl is null when origin is absent or non-GitHub', async () => {
-    const runner = new FakeAsyncRunner();
-    runner.remoteUrl = null;
-    await withServer({ homeDir: home, now: NOW, dataRepoPath: dataRepo, publishRunner: runner }, async (base) => {
-      const r = await createReview(base, 'projX');
-      await unlock(base, r, 'replace');
-      const body = (await (await post(base, `/api/reviews/${r.reviewId}/publish/plan`)).json()) as {
-        compareUrl: string | null;
-      };
-      expect(body.compareUrl).toBeNull();
-    });
-  });
+  it('maps submit recompilation refusal to a sanitized HTTP contract', async () => {
+    const targets = new InMemoryPublicationTargetStore();
+    await targets.configure({ owner: 'owner', repo: 'repo' });
+    const github = new RecordingGitHubPort();
+    const workspace = new LocalRecordingWorkspace();
+    await withServer(
+      {
+        homeDir: home,
+        now: NOW,
+        publicationRoot,
+        publicationTargetStore: targets,
+        publicationPreviews: new InMemorySealedPreviewStore({
+          id: () => 'publication_refusal',
+          now: () => new Date(NOW),
+        }),
+        publicationJournals: new InMemoryPublicationJournalStore(),
+        publicationReceipts: new InMemoryPublicationReceiptStore(),
+        publicationLock: new InMemoryPublicationLock(),
+        publicationGitHub: github,
+        publicationWorkspace: workspace,
+      },
+      async (base, daemon) => {
+        const reviewResponse = await fetch(
+          `${base}/api/reviews`,
+          json('POST', {
+            sourceId: 'claude-code',
+            projectKey: 'projX',
+            sessionId: 'sess-x',
+          }),
+        );
+        const reviewId = (
+          (await reviewResponse.json()) as { reviewId: string }
+        ).reviewId;
+        const previewResponse = await fetch(
+          `${base}/api/publish/preview`,
+          json('POST', { reviewIds: [reviewId] }),
+        );
+        const preview = (await previewResponse.json()) as {
+          publicationRef: string;
+          target: { revision: number };
+          contribution: { contentDigest: string };
+        };
 
-  it('plan maps a surviving blocking finding to precheck_refused (rule-aggregated, no raw values)', async () => {
-    const runner = new FakeAsyncRunner();
-    await withServer({ homeDir: home, now: NOW, dataRepoPath: dataRepo, publishRunner: runner }, async (base) => {
-      const r = await createReview(base, 'projX');
-      // 'allow' unlocks the gate but leaves the raw secret in the bytes → the
-      // MANDATORY pre-check re-scan refuses.
-      await unlock(base, r, 'allow');
-      const res = await post(base, `/api/reviews/${r.reviewId}/publish/plan`);
-      expect(res.status).toBe(422);
-      const raw = await res.text();
-      const body = JSON.parse(raw) as { code: string; blockingByRule: Array<{ ruleId: string; count: number }> };
-      expect(body.code).toBe('precheck_refused');
-      expect(body.blockingByRule.length).toBeGreaterThan(0);
-      expect(body.blockingByRule[0]).toHaveProperty('ruleId');
-      expect(body.blockingByRule[0]).toHaveProperty('count');
-      // No raw matched value ever appears (the canary secret is AKIA…/ghp_…).
-      expect(raw).not.toContain('AKIA');
-      expect(raw).not.toContain('ghp_');
-    });
-  });
+        const state = daemon.app.store.get(reviewId);
+        if (!state) throw new Error('review fixture missing');
+        state.session.messages[0].content =
+          `changed after preview ${FAKE_AWS_KEY}`;
 
-  it('plan is 409 data_repo_unconfigured when no data repo is set', async () => {
-    const runner = new FakeAsyncRunner();
-    await withServer({ homeDir: home, publishRunner: runner }, async (base) => {
-      const r = await createReview(base, 'projX');
-      await unlock(base, r, 'replace');
-      const res = await post(base, `/api/reviews/${r.reviewId}/publish/plan`);
-      expect(res.status).toBe(409);
-      expect(((await res.json()) as { code: string }).code).toBe('data_repo_unconfigured');
-    });
-  });
-
-  it('stage writes the commit and records the staged flag + branch', async () => {
-    const runner = new FakeAsyncRunner();
-    await withServer({ homeDir: home, now: NOW, dataRepoPath: dataRepo, publishRunner: runner }, async (base) => {
-      const r = await createReview(base, 'projX');
-      await unlock(base, r, 'replace');
-      const res = await post(base, `/api/reviews/${r.reviewId}/publish/stage`);
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as { staged: boolean; branch: string; stagedFiles: string[] };
-      expect(body.staged).toBe(true);
-      expect(body.branch).toBe('contrib/USER_1/sess-projX');
-      // The git verbs were checkout → add → commit (no push / gh pr create).
-      const gitVerbs = runner.calls
-        .filter((c) => c.command === 'git' && !['--version', 'status', 'show-ref', 'remote'].includes(c.args[0]))
-        .map((c) => c.args[0]);
-      expect(gitVerbs).toEqual(['checkout', 'add', 'commit']);
-    });
-  });
-
-  it('stage is 409 repo_dirty when the working tree is not clean', async () => {
-    const runner = new FakeAsyncRunner();
-    runner.dirty = true;
-    await withServer({ homeDir: home, dataRepoPath: dataRepo, publishRunner: runner }, async (base) => {
-      const r = await createReview(base, 'projX');
-      await unlock(base, r, 'replace');
-      const res = await post(base, `/api/reviews/${r.reviewId}/publish/stage`);
-      expect(res.status).toBe(409);
-      expect(((await res.json()) as { code: string }).code).toBe('repo_dirty');
-    });
-  });
-
-  it('a fresh stage hitting an existing branch guides without deleting it', async () => {
-    const runner = new FakeAsyncRunner();
-    runner.existingBranches.add('contrib/USER_1/sess-projX');
-    await withServer({ homeDir: home, dataRepoPath: dataRepo, publishRunner: runner }, async (base) => {
-      const r = await createReview(base, 'projX');
-      await unlock(base, r, 'replace');
-      const res = await post(base, `/api/reviews/${r.reviewId}/publish/stage`);
-      expect(res.status).toBe(409);
-      const body = (await res.json()) as { code: string; branch: string };
-      expect(body.code).toBe('branch_exists');
-      expect(body.branch).toBe('contrib/USER_1/sess-projX');
-      // NO auto-clean: no branch -D / -d was ever issued.
-      expect(runner.calls.some((c) => c.command === 'git' && c.args[0] === 'branch')).toBe(false);
-    });
-  });
-
-  it('submit stages-if-not-staged, then pushes + opens the PR', async () => {
-    const runner = new FakeAsyncRunner();
-    await withServer({ homeDir: home, now: NOW, dataRepoPath: dataRepo, publishRunner: runner }, async (base) => {
-      const r = await createReview(base, 'projX');
-      await unlock(base, r, 'replace');
-      const res = await post(base, `/api/reviews/${r.reviewId}/publish/submit`);
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as { opened: boolean; branch: string };
-      expect(body.opened).toBe(true);
-      // Since it was not pre-staged, submit staged first: checkout/add/commit ran.
-      const verbs = runner.calls.filter((c) => c.command === 'git').map((c) => c.args[0]);
-      expect(verbs).toContain('checkout');
-      expect(verbs).toContain('push');
-      expect(runner.calls.some((c) => c.command === 'gh' && c.args[0] === 'pr')).toBe(true);
-    });
-  });
-
-  it('submit does NOT re-stage when the review is already staged', async () => {
-    const runner = new FakeAsyncRunner();
-    await withServer({ homeDir: home, now: NOW, dataRepoPath: dataRepo, publishRunner: runner }, async (base) => {
-      const r = await createReview(base, 'projX');
-      await unlock(base, r, 'replace');
-      await post(base, `/api/reviews/${r.reviewId}/publish/stage`);
-      const checkoutsAfterStage = runner.calls.filter(
-        (c) => c.command === 'git' && c.args[0] === 'checkout',
-      ).length;
-      const res = await post(base, `/api/reviews/${r.reviewId}/publish/submit`);
-      expect(res.status).toBe(200);
-      // No second checkout -b: submit reused the existing stage.
-      const checkoutsAfterSubmit = runner.calls.filter(
-        (c) => c.command === 'git' && c.args[0] === 'checkout',
-      ).length;
-      expect(checkoutsAfterSubmit).toBe(checkoutsAfterStage);
-    });
-  });
-
-  it('submit is 409 gh_unauthenticated when gh is present but not logged in', async () => {
-    const runner = new FakeAsyncRunner();
-    runner.gh = true;
-    runner.ghAuthed = false;
-    await withServer({ homeDir: home, now: NOW, dataRepoPath: dataRepo, publishRunner: runner }, async (base) => {
-      const r = await createReview(base, 'projX');
-      await unlock(base, r, 'replace');
-      const res = await post(base, `/api/reviews/${r.reviewId}/publish/submit`);
-      expect(res.status).toBe(409);
-      expect(((await res.json()) as { code: string }).code).toBe('gh_unauthenticated');
-    });
-  });
-
-  it('submit is 409 push_rejected when the remote rejects the push', async () => {
-    const runner = new FakeAsyncRunner();
-    runner.pushRejected = true;
-    await withServer({ homeDir: home, now: NOW, dataRepoPath: dataRepo, publishRunner: runner }, async (base) => {
-      const r = await createReview(base, 'projX');
-      await unlock(base, r, 'replace');
-      const res = await post(base, `/api/reviews/${r.reviewId}/publish/submit`);
-      expect(res.status).toBe(409);
-      expect(((await res.json()) as { code: string }).code).toBe('push_rejected');
-    });
-  });
-
-  it('a concurrent publish is rejected with publish_in_flight', async () => {
-    const runner = new FakeAsyncRunner();
-    await withServer({ homeDir: home, now: NOW, dataRepoPath: dataRepo, publishRunner: runner }, async (base) => {
-      const r = await createReview(base, 'projX');
-      await unlock(base, r, 'replace');
-      // Freeze the first stage inside the mutex (blocks on git --version).
-      const release = runner.hold();
-      const first = post(base, `/api/reviews/${r.reviewId}/publish/stage`);
-      // Give the first request time to enter the handler and acquire the mutex.
-      await new Promise((res) => setTimeout(res, 60));
-      const second = await post(base, `/api/reviews/${r.reviewId}/publish/stage`);
-      expect(second.status).toBe(409);
-      expect(((await second.json()) as { code: string }).code).toBe('publish_in_flight');
-      release();
-      const firstRes = await first;
-      expect(firstRes.status).toBe(200);
-    });
+        const response = await fetch(
+          `${base}/api/publish/submit`,
+          json('POST', {
+            publicationRef: preview.publicationRef,
+            targetRevision: preview.target.revision,
+            contentDigest: preview.contribution.contentDigest,
+            confirmPublic: true,
+          }),
+        );
+        expect(response.status).toBe(422);
+        const body = await response.text();
+        expect(JSON.parse(body)).toMatchObject({
+          code: 'precheck_refused',
+          phase: 'preview',
+          refusals: [
+            {
+              reviewId,
+              sessionId: 'sess-x',
+              blockingByRule: expect.any(Object),
+            },
+          ],
+        });
+        for (const forbidden of [
+          FAKE_AWS_KEY,
+          'changed after preview',
+          publicationRoot,
+          'data/',
+          'stderr',
+          'git push',
+        ]) {
+          expect(body).not.toContain(forbidden);
+        }
+      },
+    );
+    expect(workspace.calls).toEqual([]);
+    expect(
+      github.calls.filter((call) =>
+        ['ensureFork', 'createPullRequest'].includes(call.operation),
+      ),
+    ).toEqual([]);
   });
 });

@@ -59,10 +59,11 @@ function fakeClient(over: Partial<ApiClient> = {}): ApiClient {
     listProviders: vi.fn(async () => []),
     estimateSubmit: vi.fn(),
     submit: vi.fn(),
-    getPreflight: vi.fn(),
-    publishPlan: vi.fn(),
-    publishStage: vi.fn(),
-    publishSubmit: vi.fn(),
+    inspectPublication: vi.fn(),
+    configurePublicationTarget: vi.fn(),
+    clearPublicationTarget: vi.fn(),
+    previewPublication: vi.fn(),
+    submitPublication: vi.fn(),
     ...over,
   } as ApiClient;
 }

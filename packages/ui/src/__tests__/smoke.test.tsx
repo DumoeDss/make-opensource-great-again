@@ -6,6 +6,7 @@ import { App } from '../App';
 import type { ApiClient } from '../api/client';
 import type { ProjectAnnotation, SessionRef } from '../api/types';
 import { makeReport } from './_fixtures';
+import { unconfiguredStatus } from './publicationFixtures';
 
 afterEach(cleanup);
 
@@ -37,12 +38,9 @@ const client = {
   listSessions: async () => [session],
   createReview: async () => ({ reviewId: 'r1', report: makeReport([]), rulesetWarnings: [] }),
   listProviders: async () => [],
-  getPreflight: async () => ({
-    dataRepoConfigured: false,
-    gitAvailable: true,
-    ghAvailable: false,
-    ghAuthenticated: false,
-    repoClean: true,
+  inspectPublication: async () => ({
+    ok: true as const,
+    data: unconfiguredStatus(),
   }),
 } as unknown as ApiClient;
 

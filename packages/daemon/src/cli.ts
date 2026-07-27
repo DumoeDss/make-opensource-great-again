@@ -23,7 +23,7 @@ interface CliArgs {
   command: string;
   help: boolean;
   noOpen: boolean;
-  dataRepoPath?: string;
+  error?: string;
   userProvidersPath?: string;
   providerKeysPath?: string;
   masterKeyFilePath?: string;
@@ -42,7 +42,7 @@ function parseArgs(argv: string[]): CliArgs {
   let command = '';
   let help = false;
   let noOpen = false;
-  let dataRepoPath: string | undefined;
+  let error: string | undefined;
   let userProvidersPath: string | undefined;
   let providerKeysPath: string | undefined;
   let masterKeyFilePath: string | undefined;
@@ -53,11 +53,6 @@ function parseArgs(argv: string[]): CliArgs {
       i += 1;
     } else if (arg.startsWith('--port=')) {
       port = Number(arg.slice('--port='.length));
-    } else if (arg === '--data-repo') {
-      dataRepoPath = argv[i + 1];
-      i += 1;
-    } else if (arg.startsWith('--data-repo=')) {
-      dataRepoPath = arg.slice('--data-repo='.length);
     } else if (arg === '--user-providers') {
       userProvidersPath = argv[i + 1];
       i += 1;
@@ -77,11 +72,24 @@ function parseArgs(argv: string[]): CliArgs {
       noOpen = true;
     } else if (arg === '--help' || arg === '-h') {
       help = true;
+    } else if (arg.startsWith('-')) {
+      error ??= `Unknown option: ${arg}`;
     } else if (!command) {
       command = arg;
+    } else {
+      error ??= `Unexpected argument: ${arg}`;
     }
   }
-  return { port, command, help, noOpen, dataRepoPath, userProvidersPath, providerKeysPath, masterKeyFilePath };
+  return {
+    port,
+    command,
+    help,
+    noOpen,
+    error,
+    userProvidersPath,
+    providerKeysPath,
+    masterKeyFilePath,
+  };
 }
 
 function openBrowser(url: string): void {
@@ -114,16 +122,13 @@ async function probeMosgaDaemon(port: number): Promise<boolean> {
 const HELP = `mosga ui — local session review daemon
 
 Usage:
-  mosga ui [--port N] [--no-open] [--data-repo <path>]
+  mosga ui [--port N] [--no-open]
            [--user-providers <path>] [--provider-keys <path>] [--master-key-file <path>]
 
 Options:
   -p, --port N              Port to bind on 127.0.0.1 (default ${DEFAULT_PORT}, or $MOSGA_PORT)
       --no-open             Start the daemon without opening the OS browser (prints the URL);
                             used by the desktop shell, which loads /ui in its own webview
-      --data-repo P         Path to your LOCAL clone of the public data repo that 出口①
-                            publishes into. Trusted startup config only — never accepted
-                            over HTTP, never echoed back. Omit to disable 出口① publishing.
       --user-providers P    Path to the user-scope custom-providers file
                             (default ~/.mosga/user-providers.json).
       --provider-keys P     Path to the user-scope provider-key store, encrypted at rest
@@ -131,6 +136,10 @@ Options:
       --master-key-file P   Path to the AES master keyfile that encrypts the key store
                             (default ~/.mosga/master.key; or set $MOSGA_MASTER_KEY).
   -h, --help                Show this help
+
+GitHub publication targets are configured as canonical owner/repo values in the
+same-origin UI/API after startup. Publishing requires github.com plus gh auth;
+managed workspace paths and credentials are never CLI or HTTP options.
 
 The daemon binds loopback only and has no authentication (v0.1 threat model:
 single local user). See the @mosga/daemon README.`;
@@ -153,6 +162,11 @@ export async function run(
 ): Promise<RunningDaemon | undefined> {
   const { openBrowser: open, startDaemon: start, stdout, stderr } = { ...defaultDeps, ...deps };
   const args = parseArgs(argv);
+  if (args.error) {
+    stderr(`${args.error}\n`);
+    process.exitCode = 2;
+    return undefined;
+  }
   if (args.help || (args.command && args.command !== 'ui')) {
     stdout(`${HELP}\n`);
     if (args.command && args.command !== 'ui') process.exitCode = 2;
@@ -169,7 +183,6 @@ export async function run(
   try {
     const daemon = await start({
       port: args.port,
-      dataRepoPath: args.dataRepoPath,
       userProvidersPath: args.userProvidersPath,
       providerKeysPath: args.providerKeysPath,
       masterKeyFilePath: args.masterKeyFilePath,

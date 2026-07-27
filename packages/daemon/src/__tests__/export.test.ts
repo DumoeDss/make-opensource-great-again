@@ -38,7 +38,10 @@ describe('preview + gated export (end-to-end through the real engine)', () => {
       const { reviewId, report } = created;
 
       // Locked → 409 with the gate, no stamped session.
-      const locked = await fetch(`${base}/api/reviews/${reviewId}/export`, { method: 'POST' });
+      const locked = await fetch(`${base}/api/reviews/${reviewId}/export`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+      });
       expect(locked.status).toBe(409);
       const lockedBody = (await locked.json()) as { gate: { unlocked: boolean }; session?: unknown };
       expect(lockedBody.gate.unlocked).toBe(false);
@@ -61,7 +64,10 @@ describe('preview + gated export (end-to-end through the real engine)', () => {
       }
 
       // Unlocked → stamped envelope.
-      const ok = await fetch(`${base}/api/reviews/${reviewId}/export`, { method: 'POST' });
+      const ok = await fetch(`${base}/api/reviews/${reviewId}/export`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+      });
       expect(ok.status).toBe(200);
       const body = (await ok.json()) as { session: SanitizedSession };
       expect(body.session.meta.sanitized).toBe(true);
@@ -82,7 +88,10 @@ describe('preview + gated export (end-to-end through the real engine)', () => {
         })
       ).json()) as { reviewId: string };
       const preview = (await (
-        await fetch(`${base}/api/reviews/${created.reviewId}/preview`, { method: 'POST' })
+        await fetch(`${base}/api/reviews/${created.reviewId}/preview`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+        })
       ).json()) as { session: SanitizedSession; stamped: boolean };
       expect(preview.stamped).toBe(false);
       expect(preview.session.meta.sanitized).toBe(false);

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ApiClient } from '../api/client';
 import { AppShell } from '../components/shell/AppShell';
+import { unconfiguredStatus } from './publicationFixtures';
 
 afterEach(cleanup);
 
@@ -12,13 +13,12 @@ const client = {
   listProviders: vi.fn(async () => []),
   listCustomProviders: vi.fn(async () => []),
   getKeyStatus: vi.fn(async () => ({})),
-  getPreflight: vi.fn(async () => ({
-    dataRepoConfigured: false,
-    gitAvailable: true,
-    ghAvailable: false,
-    ghAuthenticated: false,
-    repoClean: true,
+  inspectPublication: vi.fn(async () => ({
+    ok: true as const,
+    data: unconfiguredStatus(),
   })),
+  configurePublicationTarget: vi.fn(),
+  clearPublicationTarget: vi.fn(),
 } as unknown as ApiClient;
 
 describe('AppShell', () => {
