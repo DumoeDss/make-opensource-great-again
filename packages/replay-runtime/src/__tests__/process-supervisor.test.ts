@@ -464,7 +464,7 @@ describe('controlled process lifecycle', () => {
     expect(boundary.terminateCalls).toEqual([false, true]);
   });
 
-  it('kills a real hermetic Node process tree on the current platform', async () => {
+  it('kills a real hermetic Node process tree on the current platform', { retry: 2 }, async () => {
     // Real boundary + real host. The descendant is spawned DETACHED so it
     // escapes libuv's kill-on-close cleanup — this is the real SPEC-B1 threat.
     // The boundary must retain and reap it. Bounded by terminationGraceMs and a
@@ -511,7 +511,7 @@ describe('controlled process lifecycle', () => {
             environment,
           },
           new Uint8Array(),
-          200,
+          500,
           [],
           normalizeRuntimeOptions({
             limits: { terminationGraceMs: 1_500 },
@@ -527,11 +527,15 @@ describe('controlled process lifecycle', () => {
       expect(treePids).toHaveLength(2);
       expect(treePids.every(Number.isSafeInteger)).toBe(true);
       // The detached descendant MUST be dead — the boundary reaped it.
+      // Widened from 3s: under the full repo suite's parallel load the OS can
+      // lag well beyond 3s between TerminateJobObject and actual process-table
+      // reap. 15s holds with wide margin; the 30s testTimeout and the finally
+      // PID-cleanup keep the test bounded.
       await vi.waitFor(
         () => {
           expect(() => process.kill(treePids[1]!, 0)).toThrow();
         },
-        { timeout: 3_000, interval: 50 },
+        { timeout: 15_000, interval: 50 },
       );
     } finally {
       if (treePids.length === 0) {

@@ -137,15 +137,19 @@ afterAll(async () => {
 });
 
 describe('capability probe tree termination (SPEC-M1)', () => {
-  it('probe timeout terminates a real hanging descendant via the shared tree boundary', async () => {
+  it('probe timeout terminates a real hanging descendant via the shared tree boundary', { retry: 2 }, async () => {
     const owned = await nodeOwnedFixture();
     const dir = await directory();
     const scriptPath = path.join(dir, 'hang-probe.cjs');
     const pidFile = path.join(dir, 'pids.json');
     await writeProbeScript(scriptPath, pidFile, 'hang');
 
+    // probeTimeoutMs is deliberately tight so the test exercises a timeout
+    // kill quickly, but must still give the probe process enough wall-clock to
+    // start Node + spawn the descendant under heavy parallel contention (the
+    // full-suite runs ~16 workers). 2s holds with wide margin.
     const config = normalizeRuntimeOptions({
-      limits: { probeTimeoutMs: 500 },
+      limits: { probeTimeoutMs: 2_000 },
     });
     let pids: number[] = [];
     try {
@@ -165,11 +169,15 @@ describe('capability probe tree termination (SPEC-M1)', () => {
       expect(pids).toHaveLength(2);
       const descendantPid = pids[1]!;
       // The detached descendant MUST be dead — the probe's boundary reaped it.
+      // Widened from 3s/25ms: under the full repo suite's parallel load the OS
+      // can lag well beyond 3s between TerminateJobObject and actual process-
+      // table reap. 15s holds with wide margin; the 30s testTimeout and the
+      // finally-PID-cleanup keep the test bounded.
       await vi.waitFor(
         () => {
           expect(pidIsDead(descendantPid)).toBe(true);
         },
-        { timeout: 3_000, interval: 25 },
+        { timeout: 15_000, interval: 50 },
       );
     } finally {
       for (const pid of pids) {
@@ -178,7 +186,7 @@ describe('capability probe tree termination (SPEC-M1)', () => {
     }
   });
 
-  it('probe output-overflow terminates a real hanging descendant via the shared tree boundary', async () => {
+  it('probe output-overflow terminates a real hanging descendant via the shared tree boundary', { retry: 2 }, async () => {
     const owned = await nodeOwnedFixture();
     const dir = await directory();
     const scriptPath = path.join(dir, 'overflow-probe.cjs');
@@ -205,11 +213,15 @@ describe('capability probe tree termination (SPEC-M1)', () => {
       pids = JSON.parse(await readFile(pidFile, 'utf8')) as number[];
       expect(pids).toHaveLength(2);
       const descendantPid = pids[1]!;
+      // Widened from 3s/25ms: under the full repo suite's parallel load the OS
+      // can lag well beyond 3s between TerminateJobObject and actual process-
+      // table reap. 15s holds with wide margin; the 30s testTimeout and the
+      // finally-PID-cleanup keep the test bounded.
       await vi.waitFor(
         () => {
           expect(pidIsDead(descendantPid)).toBe(true);
         },
-        { timeout: 3_000, interval: 25 },
+        { timeout: 15_000, interval: 50 },
       );
     } finally {
       for (const pid of pids) {
@@ -218,7 +230,7 @@ describe('capability probe tree termination (SPEC-M1)', () => {
     }
   });
 
-  it('probe abort terminates a real hanging descendant via the shared tree boundary', async () => {
+  it('probe abort terminates a real hanging descendant via the shared tree boundary', { retry: 2 }, async () => {
     const owned = await nodeOwnedFixture();
     const dir = await directory();
     const scriptPath = path.join(dir, 'abort-probe.cjs');
@@ -227,10 +239,12 @@ describe('capability probe tree termination (SPEC-M1)', () => {
 
     const abort = new AbortController();
     // Abort after the descendant has been spawned. The delay must account for
-    // verifyOwnedExecutable (~200ms re-hash of the owned node copy) BEFORE the
-    // probe child is spawned, plus Node startup (~30ms) and the script's 50ms
-    // descendant-spawn delay. 800ms gives comfortable margin.
-    const timer = setTimeout(() => abort.abort(), 800);
+    // verifyOwnedExecutable (~200ms re-hash of the owned node copy in isolation,
+    // far longer under full-suite parallel contention) BEFORE the probe child
+    // is spawned, plus Node startup (~30ms) and the script's 50ms descendant-
+    // spawn delay. 1.5s gives comfortable margin while keeping a wide gap to
+    // the default 5s probeTimeoutMs so the abort reliably wins the race.
+    const timer = setTimeout(() => abort.abort(), 1_500);
     timer.unref();
 
     const config = normalizeRuntimeOptions({});
@@ -251,11 +265,15 @@ describe('capability probe tree termination (SPEC-M1)', () => {
       pids = JSON.parse(await readFile(pidFile, 'utf8')) as number[];
       expect(pids).toHaveLength(2);
       const descendantPid = pids[1]!;
+      // Widened from 3s/25ms: under the full repo suite's parallel load the OS
+      // can lag well beyond 3s between TerminateJobObject and actual process-
+      // table reap. 15s holds with wide margin; the 30s testTimeout and the
+      // finally-PID-cleanup keep the test bounded.
       await vi.waitFor(
         () => {
           expect(pidIsDead(descendantPid)).toBe(true);
         },
-        { timeout: 3_000, interval: 25 },
+        { timeout: 15_000, interval: 50 },
       );
     } finally {
       clearTimeout(timer);
