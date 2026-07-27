@@ -8,38 +8,41 @@ Defines the `@mosga/publisher` mandatory local pre-check: an independent, defens
 
 ### Requirement: Mandatory pre-check re-scans the artifact bytes
 
-Before any output file or PR is produced, the publisher SHALL re-run the `@mosga/sanitizer` scan on the exact artifact about to be published, parsed back as a `SanitizedSession`, using a ruleset compiled from the same vendored gitleaks pin (and trusted local custom rules) the review daemon uses. The pre-check SHALL be independent of the human gate — it verifies the final bytes, not the recorded human decisions.
+The publisher compiler SHALL pre-check every exact record file body before returning a `ContributionBundle`. After a sealed preview and explicit confirmation, the publication backend SHALL re-obtain current stamped sessions, recompile with the same trusted ruleset/options, validate the complete bundle, and before any journal/workspace/Git/GitHub mutation SHALL repeat the structured plus raw-byte pre-check on each sealed exact record body, including its trailing newline. It SHALL also run the raw-byte backstop over every exact provenance sidecar. The final gate SHALL cover the exact strings later written, not human decisions or reconstructed content.
 
-The pre-check SHALL cover **100% of the serialized published bytes**, not merely the subset of fields the structure-aware scanner traverses. In addition to the structured `scanSession` pass, the publisher SHALL run the same compiled secret/custom ruleset over the exact serialized record as a structure-agnostic raw-bytes backstop, so a blocking finding in ANY field — including `meta.*`, `schemaVersion`, and `session.{sessionId,sourceId,projectKey,updatedAt}`, which the structured traversal never visits — still refuses publication.
+#### Scenario: Submit rechecks exact sealed records
 
-#### Scenario: Pre-check runs the shared ruleset on the final record
+- **WHEN** a confirmed submit reaches its final pre-write gate
+- **THEN** every sealed record body is re-scanned byte-for-byte with the shared compiled ruleset before any local or remote mutation
 
-- **WHEN** the publisher is asked to publish an exported record
-- **THEN** it re-scans that record with `scanSession` using the shared compiled ruleset before producing any output
+#### Scenario: Provenance bytes receive a raw backstop
 
-#### Scenario: A secret in a field the structured scanner does not visit is still caught
+- **WHEN** a bundle contains provenance sidecar contents
+- **THEN** the final pre-write gate scans those exact bytes with the raw-byte backstop and refuses a surviving blocking value
 
-- **WHEN** a blocking secret is present in a field outside the structure-aware traversal (e.g. `meta.toolVersion`, `meta.contributorAlias`, `session.projectKey`, or `schemaVersion`)
-- **THEN** the raw-bytes backstop detects it and the publisher refuses publication (no file, no PR)
+#### Scenario: Reconstructed bytes cannot substitute
+
+- **WHEN** current publisher recompilation differs from the sealed contract/digest/file commitments
+- **THEN** submit is stale and does not precheck or write a separately reconstructed artifact as a replacement
 
 ### Requirement: Hard-refuse on any surviving blocking finding
 
-If the pre-check scan yields ANY blocking finding — `secrets`, `custom`, `redos-guard`, or `ruleset-compile-error` — the publisher SHALL refuse: it writes no output file, prepares no PR, and reports which findings blocked. Only a scan with zero blocking findings SHALL proceed.
+If compiler preview or final submit pre-check yields any blocking finding—`secrets`, `custom`, `redos-guard`, or `ruleset-compile-error`—publication SHALL be refused with deterministic per-review/session counts grouped by rule only. It SHALL produce no partial seal on preview refusal and no journal, file, commit, fork, push, or pull request on final refusal. Match previews, raw values, exact file contents, local paths, and subprocess text SHALL NOT cross the compiler/publication HTTP boundary.
 
-#### Scenario: A surviving canary secret refuses publication
+#### Scenario: Multiple final refusals are aggregated safely
 
-- **WHEN** the artifact still contains a (fake) secret that the shared ruleset detects
-- **THEN** the publisher refuses to produce any publishable file or PR and reports the blocking finding(s)
+- **WHEN** exact sealed bytes for multiple records contain surviving blocking findings
+- **THEN** submit returns every refused review/session with counts by rule and no sensitive finding detail
 
-#### Scenario: A clean artifact proceeds
+#### Scenario: Final refusal has zero mutation
 
-- **WHEN** the pre-check scan of a fully-sanitized artifact yields zero blocking findings
-- **THEN** the publisher proceeds to produce the output / prepare the PR
+- **WHEN** the final submit pre-check refuses any record or sidecar
+- **THEN** recording filesystem, Git, GitHub, journal, and receipt adapters observe zero write calls
 
-#### Scenario: A human-allowed real secret is still caught
+#### Scenario: Clean final bytes proceed
 
-- **WHEN** a real secret was marked `allow` upstream but remains present in the artifact bytes
-- **THEN** the pre-check re-detects it as a blocking finding and refuses publication (defense-in-depth over the gate)
+- **WHEN** every exact sealed record and sidecar passes its required final scans and all other submit bindings remain valid
+- **THEN** the backend may begin the managed publication journal/workspace flow
 
 ### Requirement: Non-blocking findings do not block publication
 
@@ -52,9 +55,14 @@ The pre-check SHALL NOT refuse on Layer-3 `normalization` (non-blocking) finding
 
 ### Requirement: Pre-check parity with CI is version-pinned
 
-The pre-check SHALL surface the `@mosga/sanitizer` package version, the `rulesetVersion`, and the gitleaks pin it used, so the community CI can pin the identical engine and the local verdict and the CI verdict are guaranteed to match. A rules or engine version the CI cannot match SHALL be a visible failure, never a silent divergence.
+The compiler and publication backend SHALL surface and seal `sanitizerPackageVersion`, `rulesetVersion`, and `gitleaksVersion`. Submit SHALL use the same trusted compiled ruleset/options and SHALL reject missing, changed, or unsupported engine identity before mutation. The community CI SHALL be able to match the sealed provenance pins exactly; divergence SHALL be visible and fail closed.
 
-#### Scenario: Pre-check reports the engine + ruleset version it used
+#### Scenario: Engine pins remain equal through submit
 
-- **WHEN** the pre-check runs
-- **THEN** it reports the sanitizer package version, ruleset version, and gitleaks pin used, matching what the CI template pins
+- **WHEN** preview and submit use the same trusted engine
+- **THEN** the sealed bundle, final pre-check, provenance sidecars, and receipt flow retain matching engine identity
+
+#### Scenario: Engine identity is stale
+
+- **WHEN** current trusted compiler/pre-check identity differs from the sealed engine pins
+- **THEN** submit returns a stale/incompatible error and performs no mutation

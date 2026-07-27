@@ -2,52 +2,62 @@
 
 ## Purpose
 
-Defines the `@mosga/publisher` GitHub PR submission flow: staging a contribution only after a passing pre-check, rendering a provenance-carrying PR body, and either driving `gh` or emitting exact manual commands — never opening a live PR in tests.
+Defines target-independent contribution-bundle compilation and the publication backend's sealed pull-request delivery: compiling exact PR metadata and files only after a passing pre-check, rendering a provenance-carrying PR body, and opening an explicit upstream pull request through the semantic GitHub adapter — never opening a live PR in tests.
+
 ## Requirements
+
 ### Requirement: Prepare a PR contribution only after a passing pre-check
 
-Given a target data-repo and a pre-check-passing artifact, the publisher SHALL prepare a contribution: a working clone, a new branch named deterministically (e.g. `contrib/<contributorAlias>/<sessionId>`), the record placed at its deterministic path, and a commit. Preparation SHALL NOT proceed for an artifact that failed the pre-check.
+Given a sealed target-independent `ContributionBundle`, the publication backend SHALL prepare a managed contribution only after explicit submit confirmation and after current review gates, target/content bindings, bundle byte/hash/path invariants, and the final exact-byte pre-check all pass. Preparation SHALL use the sealed upstream base commit and write the sealed exact files into a daemon-owned workspace. The publisher SHALL remain pure and SHALL NOT prepare a clone, branch, file, commit, push, or pull request.
 
-#### Scenario: Contribution is staged for a clean artifact
+#### Scenario: Clean sealed contribution is prepared
 
-- **WHEN** a pre-check-passing artifact is submitted for a target repo
-- **THEN** the publisher stages a branch, the placed record file, and a commit ready to push
+- **WHEN** confirmed submit revalidates an unexpired seal and every final pre-write gate passes
+- **THEN** the backend creates the managed branch/files/commit from the sealed base and exact bytes
 
-#### Scenario: No preparation for a failed pre-check
+#### Scenario: No preparation for a failed final gate
 
-- **WHEN** the artifact failed the pre-check
-- **THEN** the publisher does not stage any branch, file, or commit
+- **WHEN** target revision, review gate/content, bundle invariants, or final exact-byte pre-check fails
+- **THEN** no journal, workspace, branch, file, commit, fork, push, or pull-request mutation occurs
 
 ### Requirement: PR body from a template carrying the provenance stamp
 
-The PR body SHALL be rendered from a template including the provenance stamp (`schemaVersion`, `sanitizationRulesetVersion`, `sanitizerPackageVersion`, `gitleaksVersion`), the record/session count, and a sanitization attestation. This lets a maintainer and the CI verify version parity at review time.
+The publisher SHALL render target-independent PR title/body metadata from one shared deterministic template pipeline for N=1 and N>1. The body SHALL include record/session count, canonical per-session summaries, provenance/pre-check engine information (`sanitizationRulesetVersion` where applicable, `sanitizerPackageVersion`, `rulesetVersion`, and `gitleaksVersion`), and the sanitization attestation and contributor-consent text. Rendering SHALL NOT read the wall clock or target/workspace/GitHub state.
 
 #### Scenario: PR body includes the version stamp
 
-- **WHEN** the PR body is generated
-- **THEN** it contains the ruleset version, the sanitizer package version, and the gitleaks pin used
+- **WHEN** a contribution bundle is compiled
+- **THEN** its PR body contains the ruleset version, sanitizer package version, gitleaks pin, record count, and sanitization attestation
 
-### Requirement: gh CLI when present, documented manual path otherwise
+#### Scenario: Recompilation preserves PR metadata
 
-When the `gh` CLI is detected and authenticated, the publisher MAY push the branch and open the PR. When `gh` is absent, it SHALL instead emit the exact `git`/`gh` command sequence and the staged file list and document the manual steps. The publisher SHALL provide both a synchronous command runner (retained for the CLI and tests) and an asynchronous command-runner variant (for non-blocking use by the daemon, so git/gh subprocesses never block its event loop); both SHALL run the same commands with the same gh-present/gh-absent behaviour — the interface is widened, the behaviour is unchanged. A `gh`-authentication probe (`gh auth status`) SHALL distinguish `gh` present-but-unauthenticated from `gh` absent. Tests SHALL NOT push to or open a PR against a real external repo.
+- **WHEN** the same logical sessions and explicit compiler options are compiled again in any input order
+- **THEN** the PR title and body are byte-for-byte identical
 
-#### Scenario: gh-absent path emits exact commands
+### Requirement: Pull request delivery names upstream base and push head explicitly
 
-- **WHEN** the `gh` CLI is not available
-- **THEN** the publisher outputs the exact `git`/`gh` commands and staged files for the contributor to run manually
+The publication backend SHALL push the contribution branch to the resolved push repository and SHALL find/create the pull request against the canonical upstream with explicit upstream repository, base branch, push repository, and head branch identity. Lookup SHALL verify the upstream repository ID/full name, base ref, head repository full name, and head ref semantically. Creation SHALL use a bare branch head for a direct route and `<authenticated-user>:<branch>` only for a verified fork route. It SHALL NOT derive any of those values from cwd, `origin`, or caller input.
 
-#### Scenario: No live external PR in tests
+#### Scenario: Fork push opens an upstream pull request
 
-- **WHEN** the PR-submission flow is exercised in tests
-- **THEN** it runs against a local/dry-run target and never opens a PR on a real external repository
+- **WHEN** the selected route uses the authenticated actor’s verified fork
+- **THEN** the branch is pushed to that fork and the PR is explicitly opened against the sealed upstream/default-branch base
 
-#### Scenario: Async runner mirrors the sync runner
+#### Scenario: Direct push opens an upstream pull request
 
-- **WHEN** the staging/submission flow is run through the asynchronous command runner
-- **THEN** it performs the same git/gh commands with the same gh-present/gh-absent outcome as the synchronous runner, without blocking the caller's event loop
+- **WHEN** the actor can push to upstream
+- **THEN** push and PR target the upstream explicitly while retaining separate internal upstream/push semantics
 
-#### Scenario: gh authentication is probed distinctly
+### Requirement: Pull request submission returns a real idempotent receipt
 
-- **WHEN** `gh` is installed but not logged in
-- **THEN** the authentication probe reports unauthenticated, distinct from `gh` being absent
+Successful submission SHALL return and persist an immutable receipt containing the real PR number/URL, commit SHA, upstream, push repository, mode, base, branch, record count, target revision, content digest, and submitted time. Retry/recovery SHALL find the exact existing upstream/base/head PR before any create call and SHALL return the same receipt rather than duplicate a PR.
 
+#### Scenario: Existing exact pull request is adopted
+
+- **WHEN** the branch was pushed and an exact upstream/base/head PR already exists
+- **THEN** submission adopts that PR and persists/returns its real identity
+
+#### Scenario: Retry returns the original receipt
+
+- **WHEN** the same sealed submission is retried after completion
+- **THEN** the backend returns the original receipt without a new push or PR
