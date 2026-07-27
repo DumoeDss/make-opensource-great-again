@@ -6,6 +6,7 @@
  * lives in `AppShell` and flows in via props.
  */
 import { HeartHandshake, type LucideIcon, Settings } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import type { ApiClient } from '../../api/client';
 import { cn } from '../../lib/cn';
@@ -20,8 +21,8 @@ interface NavItemDef {
 }
 
 const NAV_ITEMS: NavItemDef[] = [
-  { id: 'contribute', icon: HeartHandshake, label: '贡献' },
-  { id: 'settings', icon: Settings, label: '设置' },
+  { id: 'contribute', icon: HeartHandshake, label: 'nav.contribute' },
+  { id: 'settings', icon: Settings, label: 'nav.settings' },
 ];
 
 interface NavRailProps {
@@ -31,6 +32,7 @@ interface NavRailProps {
 }
 
 export function NavRail({ client, activeView, onNavigate }: NavRailProps): JSX.Element {
+  const { t } = useTranslation();
   const daemon = useDaemonStatus(client);
   const healthy = daemon.status === 'ok';
 
@@ -44,7 +46,7 @@ export function NavRail({ client, activeView, onNavigate }: NavRailProps): JSX.E
           <HeartHandshake className="h-5 w-5 text-primary" strokeWidth={1.5} aria-hidden="true" />
           <span className="font-display text-base font-semibold">MOSGA</span>
         </div>
-        <p className="mt-1 text-xs text-text-subtle">让数据捐赠有尊严</p>
+        <p className="mt-1 text-xs text-text-subtle">{t('nav.subtitle')}</p>
       </div>
 
       <nav className="flex-1 space-y-1 p-2">
@@ -66,7 +68,7 @@ export function NavRail({ client, activeView, onNavigate }: NavRailProps): JSX.E
               )}
             >
               <Icon className="h-4 w-4 shrink-0" strokeWidth={1.5} />
-              <span className="truncate">{item.label}</span>
+              <span className="truncate">{t(item.label)}</span>
             </button>
           );
         })}
@@ -82,7 +84,7 @@ export function NavRail({ client, activeView, onNavigate }: NavRailProps): JSX.E
             aria-hidden="true"
           />
           <span data-testid="daemon-health">
-            {healthy ? 'daemon 已连接' : daemon.status === 'probing' ? 'daemon 连接中…' : 'daemon 不可达'}
+            {healthy ? t('nav.daemonConnected') : daemon.status === 'probing' ? t('nav.daemonProbing') : t('nav.daemonUnreachable')}
           </span>
         </div>
         <p className="mt-1 truncate text-[10px] text-text-subtle/80" title={daemon.address}>

@@ -8,6 +8,7 @@
  */
 import { Download, Send, UploadCloud } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { ApiClient } from '../../api/client';
 import type { SanitizationReport, SanitizedSession, SubmissionReceipt } from '../../api/types';
@@ -53,6 +54,7 @@ export function ExitCards({
   onJumpToReviewIssue,
   requireAffirm,
 }: ExitCardsProps): JSX.Element {
+  const { t } = useTranslation();
   const [showExport, setShowExport] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const publication = usePublication(client);
@@ -76,11 +78,10 @@ export function ExitCards({
         >
           <div className="flex items-center gap-2">
             <UploadCloud className="h-5 w-5 text-primary" strokeWidth={1.5} />
-            <h3 className="font-display text-lg font-semibold">出口①　公开数据集</h3>
+            <h3 className="font-display text-lg font-semibold">{t('exit.oneTitle')}</h3>
           </div>
           <p className="mt-2 text-sm text-text-muted">
-            将脱敏后的会话作为 PR 贡献到公开数据仓库：预检 → PR 预览 → 提交。为最大化开放价值的
-            首选通道。
+            {t('exit.oneDescription')}
           </p>
 
           <div className="mt-3 flex-1" data-testid="exit-one-state" aria-live="polite">
@@ -140,10 +141,10 @@ export function ExitCards({
         >
           <div className="flex items-center gap-2">
             <Send className="h-5 w-5 text-primary" strokeWidth={1.5} />
-            <h3 className="font-display text-lg font-semibold">出口②　API 直投</h3>
+            <h3 className="font-display text-lg font-semibold">{t('exit.twoTitle')}</h3>
           </div>
           <p className="mt-2 text-sm text-text-muted">
-            将本次会话直投到你选择的模型服务商，用于回放评测。含成本估算与双重知情确认。
+            {t('exit.twoDescription')}
           </p>
           <div className="mt-4">
             <SubmitPanel
@@ -173,7 +174,7 @@ export function ExitCards({
           data-testid="export-secondary"
         >
           <Download className="h-4 w-4" strokeWidth={1.5} />
-          {exporting ? '导出中…' : '仅导出脱敏文件'}
+          {exporting ? t('exit.exporting') : t('exit.exportOnly')}
         </Button>
         {showExport && (
           <div className="mt-3">

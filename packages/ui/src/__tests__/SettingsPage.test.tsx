@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ApiClient } from '../api/client';
 import { SettingsPage } from '../components/SettingsPage';
@@ -10,6 +10,7 @@ import type {
   ProviderTarget,
   PublicationStatus,
 } from '../api/types';
+import { initLanguage, setLanguage } from '../lib/lang';
 import {
   blockedStatus,
   directStatus,
@@ -324,5 +325,54 @@ describe('SettingsPage — GitHub publication target', () => {
     );
     expect(publicationPanel.textContent).not.toMatch(forbiddenDisclosure);
     expect(container.textContent).not.toContain(['--data', 'repo'].join('-'));
+  });
+});
+
+describe('SettingsPage — language switcher', () => {
+  // The active language lives in `lang.ts` module state; reset to zh + clear
+  // storage so each switcher test starts from the same default.
+  beforeEach(() => {
+    setLanguage('zh');
+    window.localStorage.clear();
+  });
+
+  it('clicking an option persists to localStorage and marks it active', async () => {
+    const client = makeClient();
+    const { getByTestId } = render(<SettingsPage client={client} />);
+
+    // Default render: zh is the pressed option, ja is not.
+    expect(getByTestId('lang-zh').getAttribute('aria-pressed')).toBe('true');
+    expect(getByTestId('lang-ja').getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(getByTestId('lang-ja'));
+
+    // Persistence is synchronous (setLanguage writes before notifying i18next).
+    expect(window.localStorage.getItem('mosga-lang')).toBe('ja');
+    // The pressed button flips once react-i18next emits `languageChanged`.
+    await waitFor(() => {
+      expect(getByTestId('lang-ja').getAttribute('aria-pressed')).toBe('true');
+      expect(getByTestId('lang-zh').getAttribute('aria-pressed')).toBe('false');
+    });
+  });
+
+  it('a stored choice is the active option after initLanguage (reload)', () => {
+    // Simulate a fresh app start reading the persisted language from storage.
+    window.localStorage.setItem('mosga-lang', 'ko');
+    initLanguage();
+
+    const client = makeClient();
+    const { getByTestId } = render(<SettingsPage client={client} />);
+
+    expect(getByTestId('lang-ko').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('offers exactly the four endonym-labelled options, untranslated', () => {
+    const client = makeClient();
+    const { getByTestId } = render(<SettingsPage client={client} />);
+
+    expect(getByTestId('lang-toggle').textContent).toContain('中文');
+    expect(getByTestId('lang-toggle').textContent).toContain('日本語');
+    expect(getByTestId('lang-toggle').textContent).toContain('English');
+    expect(getByTestId('lang-toggle').textContent).toContain('한국어');
   });
 });

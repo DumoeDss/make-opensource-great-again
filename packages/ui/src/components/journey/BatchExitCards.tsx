@@ -17,6 +17,7 @@
  */
 import { Download, Send, UploadCloud } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { ApiClient } from '../../api/client';
 import { usePublication } from '../../lib/usePublication';
@@ -60,6 +61,7 @@ export function BatchExitCards({
   onJumpToSession,
   requireAffirm,
 }: BatchExitCardsProps): JSX.Element {
+  const { t } = useTranslation();
   const [wizardOpen, setWizardOpen] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -84,7 +86,7 @@ export function BatchExitCards({
     try {
       const result = await client.exportReview(item.reviewId);
       if (!result.ok) {
-        setErrors((e) => ({ ...e, [item.reviewId]: '导出被拒绝：出口已重新锁定。' }));
+        setErrors((e) => ({ ...e, [item.reviewId]: t('batchExit.exportRefused') }));
         return;
       }
       const jsonl = `${JSON.stringify(result.data.session)}\n`;
@@ -115,11 +117,10 @@ export function BatchExitCards({
         >
           <div className="flex items-center gap-2">
             <UploadCloud className="h-5 w-5 text-primary" strokeWidth={1.5} />
-            <h3 className="font-display text-lg font-semibold">批量出口①　公开数据集</h3>
+            <h3 className="font-display text-lg font-semibold">{t('batchExit.oneTitle')}</h3>
           </div>
           <p className="mt-2 text-sm text-text-muted">
-            将 {items.length} 条脱敏会话合并为一个分支 / 一个 PR 贡献到公开数据仓库：预检 → PR
-            预览 → 提交。
+            {t('batchExit.oneDescription', { count: items.length })}
           </p>
 
           <div className="mt-3 flex-1" data-testid="batch-exit-one-state" aria-live="polite">
@@ -179,10 +180,10 @@ export function BatchExitCards({
         >
           <div className="flex items-center gap-2">
             <Send className="h-5 w-5 text-primary" strokeWidth={1.5} />
-            <h3 className="font-display text-lg font-semibold">批量出口②　API 直投</h3>
+            <h3 className="font-display text-lg font-semibold">{t('batchExit.twoTitle')}</h3>
           </div>
           <p className="mt-2 text-sm text-text-muted">
-            将 {items.length} 条会话逐条直投到你选择的模型服务商，含总成本估算与逐条内容绑定的知情确认。
+            {t('batchExit.twoDescription', { count: items.length })}
           </p>
           <div className="mt-4">
             <BatchSubmitPanel
@@ -198,7 +199,7 @@ export function BatchExitCards({
       {/* Low-key secondary: export the sanitized files. */}
       <div className="border-t border-border pt-3">
         <div className="flex items-center justify-between">
-          <span className="text-sm text-text-muted">仅导出脱敏文件（{items.length} 条）</span>
+          <span className="text-sm text-text-muted">{t('batchExit.exportLabel', { count: items.length })}</span>
           <Button
             type="button"
             variant="link"
@@ -208,7 +209,7 @@ export function BatchExitCards({
             data-testid="batch-export-all"
           >
             <Download className="h-4 w-4" strokeWidth={1.5} />
-            导出全部脱敏文件
+            {t('batchExit.exportAll')}
           </Button>
         </div>
         <ul className="mt-2 divide-y divide-border rounded-md border border-border">
@@ -232,7 +233,7 @@ export function BatchExitCards({
                     data-testid={`batch-download-${item.sessionId}`}
                   >
                     <Download className="h-4 w-4" strokeWidth={1.5} />
-                    下载 .jsonl
+                    {t('batchExit.downloadJsonl')}
                   </Button>
                 </div>
                 {error && <p className="text-xs text-destructive">{error}</p>}

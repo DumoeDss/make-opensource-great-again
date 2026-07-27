@@ -15,6 +15,7 @@
  * 「换会话」 link) so there is exactly one entry point.
  */
 import { Check, CheckCircle2, Lock, Unlock } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { cn } from '../../lib/cn';
 
@@ -35,9 +36,9 @@ interface StepperProps {
 }
 
 const STEPS: Array<{ n: JourneyStep; label: string }> = [
-  { n: 1, label: '选择会话' },
-  { n: 2, label: '处置命中' },
-  { n: 3, label: '选择出口' },
+  { n: 1, label: 'stepper.step1' },
+  { n: 2, label: 'stepper.step2' },
+  { n: 3, label: 'stepper.step3' },
 ];
 
 function LockBadge({
@@ -45,20 +46,21 @@ function LockBadge({
   completed,
   pending,
 }: Pick<StepperProps, 'cleared' | 'completed' | 'pending'>): JSX.Element {
+  const { t } = useTranslation();
   let label: string;
   let Icon = Lock;
   let tone = 'border-destructive/50 bg-destructive/10 text-destructive';
 
   if (completed) {
-    label = '已完成';
+    label = t('stepper.completed');
     Icon = CheckCircle2;
     tone = 'border-success/60 bg-success/15 text-success';
   } else if (cleared) {
-    label = '已解锁';
+    label = t('stepper.unlocked');
     Icon = Unlock;
     tone = 'border-success/50 bg-success/15 text-success';
   } else {
-    label = `还差 ${pending} 项解锁`;
+    label = t('stepper.lockPending', { pending });
     Icon = Lock;
     tone = 'border-destructive/50 bg-destructive/10 text-destructive';
   }
@@ -85,6 +87,7 @@ export function Stepper({
   maxEnterable,
   onNavigate,
 }: StepperProps): JSX.Element {
+  const { t } = useTranslation();
   return (
     <div
       className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-1 px-4 py-3"
@@ -121,7 +124,7 @@ export function Stepper({
               >
                 {done ? <Check className="h-3 w-3" strokeWidth={2} /> : step.n}
               </span>
-              <span className="whitespace-nowrap">{step.label}</span>
+              <span className="whitespace-nowrap">{t(step.label)}</span>
             </span>
           );
           return (
