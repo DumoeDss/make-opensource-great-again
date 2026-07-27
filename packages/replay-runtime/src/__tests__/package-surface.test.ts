@@ -51,16 +51,21 @@ describe('@mosga/replay-runtime package boundary', () => {
     const rootManifest = JSON.parse(
       readFileSync(path.join(repositoryRoot, 'package.json'), 'utf8'),
     ) as { scripts: { build: string; typecheck: string } };
+    // Assert the replay-runtime/proxy block sits contiguously right after
+    // replay-bundle (the runtime child's ordering concern). The span does NOT
+    // extend to `ui` — packages inserted after replay-proxy (e.g. replay-submit)
+    // must not break this assertion; root-build-order.test.ts guards the full
+    // chain end-to-end.
     expect(rootManifest.scripts.build).toContain(
-      '@mosga/replay-bundle && npm run build -w @mosga/replay-runtime && npm run build -w @mosga/replay-proxy && npm run build -w @mosga/ui',
+      '@mosga/replay-bundle && npm run build -w @mosga/replay-runtime && npm run build -w @mosga/replay-proxy',
     );
     expect(rootManifest.scripts.typecheck).toContain(
-      '@mosga/replay-bundle && npm run typecheck -w @mosga/replay-runtime && npm run typecheck -w @mosga/replay-proxy && npm run typecheck -w @mosga/ui',
+      '@mosga/replay-bundle && npm run typecheck -w @mosga/replay-runtime && npm run typecheck -w @mosga/replay-proxy',
     );
     expect(
       readFileSync(path.join(repositoryRoot, 'README.md'), 'utf8'),
     ).toContain(
-      'contracts → readers → sanitizer → replay-bundle → replay-runtime → replay-proxy → ui',
+      'replay-bundle → replay-runtime → replay-proxy',
     );
   });
 });

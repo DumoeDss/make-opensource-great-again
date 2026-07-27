@@ -39,8 +39,30 @@ The original working tree contains unrelated user changes and must not be modifi
 ## Decomposition
 
 The portfolio is intentionally serial because the slices converge on shared
-direct-submit contracts and orchestration code. Under Tier B, child pipelines are
-serial even where a dependency could otherwise allow parallelism.
+direct-submit contracts and orchestration code. The child order is determined by
+the dependency DAG, not by a legacy host-tier limitation.
+
+## Codex-native orchestration state
+
+- Current execution view: Codex host, Tier `A`, worker runtime `codex`,
+  dispatch mode `native`.
+- New leaf workers are dispatched with `spawn_agent`. An idle worker receives a
+  new turn through `followup_task`; `send_message` is only for guidance while a
+  worker is running.
+- A Codex worker's final response is delivered to the LEAD automatically. No
+  duplicate completion message is sent.
+- `wait_agent` is reserved for one event-driven wait at a real dependency
+  barrier; polling loops are not part of this run's protocol.
+- Native agent handles are scoped to the host session and expired when the
+  session restarted. No old handle is revived and no thread or transcript
+  identity is synthesized.
+- No Direction workstream/Slice layer exists for this run. The active unit is
+  the decomposed portfolio; its Runtime child is at review-loop round 3, after a
+  completed fixer pass and before the required independent re-review.
+- The Runtime frontier has a real surfaced fixer transcript, so resume
+  warm-seeds a fresh native reviewer from that transcript and the durable review
+  reports. This is a degraded restart path because the original worker session
+  itself cannot be continued.
 
 ### 1. `api-direct-submit-cli-replay-bundle`
 
@@ -220,3 +242,135 @@ replay-bundle
   policy. The proxy may observe hashes but has no bundle mutation or
   sanitization API, and integration must bind consent/receipts to the validated
   `sha256:` bundle root.
+
+## Runtime-child interface decisions
+
+- `@mosga/replay-runtime` is a validation-owning two-phase boundary. Its public
+  `prepare({ bundle, skillRoots, signal })` accepts an untrusted bundle, calls
+  `validateReplayBundle` before bundle-derived writes, and returns an opaque
+  one-use `PreparedReplay`. The safe preparation observation exposes the
+  validated bundle hash, recorded/runtime CLI versions, selected profile, sealed
+  target, and non-secret route requirements, but no workspace, command,
+  environment, prompt, token, path, or native body.
+- Later orchestration order is `prepare -> render terminal manifest -> register
+  proxy route -> execute -> dispose`. The proxy supplies a typed loopback-only
+  `ReplayRouteBinding` matching the prepared source protocol and sealed target;
+  runtime receives only the ephemeral route token, never a real upstream key.
+  Terminal input is passed exactly once over stdin, and the token is injected
+  only through the child environment.
+- Claude Code and Codex layouts/invocations are internal tested capability
+  profiles selected by both observed version and required probe evidence.
+  Unknown, newer, incomplete, or ambiguous combinations fail before resume;
+  adapters never try alternate commands or reconstructed submission.
+- Runtime stages native and instruction bytes only through the bundle canonical
+  serializers, stages exactly the sealed instruction snapshot, never discovers
+  project instructions or rereads/resanitizes source data, and protects live
+  skill roots with bounded detached read-only snapshots. All process outcomes
+  clean the private workspace and expose only stable safe codes; raw CLI output,
+  prompts, route tokens, credentials, paths, and session/skill bodies are never
+  logged or returned.
+
+## Runtime implementation handoff
+
+- Initial support is closed to capability-complete
+  `claude-code-2.1-headless-resume-v1` (Claude Code 2.1.x) and
+  `codex-0.101-exec-resume-responses-v1` (Codex 0.101.x). Integration must
+  surface the runtime's unsupported-version/capability result and must not
+  broaden these predicates or retry another invocation.
+- `ReplayRouteBinding.baseUrl` must be plain HTTP on `localhost`, `127.0.0.1`,
+  or `::1` with an explicit port and no userinfo, query, or fragment. The binding
+  must exactly repeat every prepared source/protocol/auth/target field. Proxy
+  registration therefore precedes `execute`, but proxy internals and upstream
+  credentials remain unrepresentable in the runtime input.
+- An `execute` call consumes its prepared handle before route, terminal-input,
+  timeout, or process validation. Any integration retry requires a fresh
+  `prepare` and a new proxy route/token; `dispose` remains mandatory and
+  idempotent in orchestration cleanup.
+- Codex provider control stores only the environment-variable names
+  `MOSGA_ROUTE_BASE_URL`, `MOSGA_ROUTE_TOKEN`, and `MOSGA_CLI_MODEL`; Claude
+  routing is likewise injected by runtime through its tested Anthropic
+  environment profile. Later children supply only the typed binding and must
+  not write CLI config or pass arbitrary environment maps.
+
+## Proxy-child interface decisions
+
+- `@mosga/replay-proxy` is a focused package depending only on
+  `@mosga/contracts` and `@mosga/replay-runtime` (type-only import of
+  `ReplayRouteRequirement` / `ReplayRouteBinding`). It deliberately does NOT
+  depend on `@mosga/direct-submit`, `@mosga/sanitizer`, or
+  `@mosga/replay-bundle`. The structural separation from direct-submit enforces
+  the no-fallback guarantee at the import graph level: no reconstructed-API
+  code path is statically reachable from the proxy.
+- The route types (`ReplayRouteRequirement` / `ReplayRouteBinding`) are defined
+  in `@mosga/replay-runtime/src/types.ts`, NOT in `@mosga/contracts`. Moving
+  them to contracts would require modifying the immutable runtime package, so
+  the proxy consumes them via type-only import. This creates the correct
+  build-order dependency (runtime before proxy) matching the portfolio DAG.
+- The proxy receipt carries only `cliRequestHash` and `outboundRequestHash`,
+  NOT the `bundleContentHash`. The bundle hash originates in the runtime's
+  `ReplayPreparationObservation`; the integration child merges the three
+  hashes into the final receipt. Keeping each hash in its originating child
+  preserves boundary isolation.
+- The proxy's `registerRoute` is the single point that accepts the real upstream
+  API key (`ReplayUpstreamTarget.upstreamApiKey`). The key is stored only in a
+  non-exported route record, sent only as the converter-selected authorization
+  header on the single outbound request, and cleared on dispose. No public
+  proxy API accepts arbitrary environment maps or credential-bearing strings
+  outside this one field.
+
+## Proxy-child findings (propose stage)
+
+- The rasen strict validator's SHALL/MUST check inspects only the FIRST PHYSICAL
+  LINE of each requirement body text. A requirement whose first line is an
+  introductory clause without SHALL/MUST fails `--strict` validation even when
+  SHALL appears later in the same paragraph. All spec requirement bodies must
+  lead with a sentence containing SHALL or MUST on the first wrapped line.
+- Each proxy route uses a dedicated loopback listener (one `http.Server` per
+  registration on an ephemeral OS-assigned port). This avoids a shared
+  path-routing table where one route's token could be replayed against another,
+  and keeps the `baseUrl` short (no path prefix), matching what the runtime's
+  profile env injection expects.
+- The v1 converter set is four converters (two passthrough + two cross-protocol
+  to OpenAI Chat Completions). Any other `(sourceProtocol, targetFormat)` pair
+  fails closed at registration with `converter-unsupported`. The integration
+  child must surface this as a terminal failure and must not retry with a
+  different target or converter.
+
+## Integration-child findings (propose stage)
+
+- The `TerminalManifestSeed` sealed in the bundle does NOT carry
+  `humanReviewPassed` (that lives in `ReplayReviewEvidence`) or the omissions
+  disclosure list (that lives in the bundle payload's `omissions` array). The
+  terminal-manifest renderer must receive these as explicit additional inputs
+  extracted from the validated bundle payload, not from the seed alone. This
+  is the tightest point of the "no enrichment" rule: the renderer reads from
+  the validated bundle but never rereads the original session.
+- `ReplayPreparationObservation` exposes only source CLI, bundle hash,
+  recorded/replay CLI versions, capability profile, delivery target, and route
+  requirement — NOT the seed, omissions, or review evidence. The orchestration
+  must therefore independently call `validateReplayBundle` to extract the
+  seed/omissions/review BEFORE calling `runtime.prepare`. The runtime
+  re-validates internally for its own materialization; both validations derive
+  the same domain-separated root hash. The consent is validated against the
+  extracted payload before the expensive `prepare` call (CLI probe +
+  workspace).
+- The no-fallback guarantee operates at THREE levels, not two: (1) structural
+  — `@mosga/replay-submit` has no import path to `@mosga/direct-submit`; (2)
+  runtime — `submitCliResume` returns `{ ok: false }` on every failure; (3)
+  daemon-handler — the submit route branches on `consent.replayMode` before
+  any side effect and a cli-resume error never falls through to the existing
+  `submit()` call. Level 3 is necessary because the daemon imports both
+  packages and is the sole fan-in point.
+- The existing `ContributionConsent` binds the `SanitizedSession` content hash
+  and the `single-shot` / `turn-by-turn` modes — both irrelevant to
+  cli-resume. A separate `CliResumeConsent` schema (binding the bundle
+  `sha256:` root, `cli-resume` mode, instruction/skill policy, and a new
+  `runtimeContextAcknowledged` flag) keeps each path's consent
+  self-consistent and avoids overloading the legacy schema.
+- Replay preparation (native capture → draft → scan → review → seal) is a
+  parallel review flow to the existing normalized one, not a modification of
+  it. The existing review produces a `SanitizedSession`; the replay review
+  produces a sealed `ReplayBundle`. Both use the same compiled ruleset, but
+  the replay path scans native JSONL rows + instruction content via the
+  sanitizer's `scanReplayDraft` / `applyReplayDispositions` APIs. The daemon
+  stores both review states keyed by the same review id.
