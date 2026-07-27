@@ -52,15 +52,15 @@ describe('@mosga/replay-runtime package boundary', () => {
       readFileSync(path.join(repositoryRoot, 'package.json'), 'utf8'),
     ) as { scripts: { build: string; typecheck: string } };
     expect(rootManifest.scripts.build).toContain(
-      '@mosga/replay-bundle && npm run build -w @mosga/replay-runtime && npm run build -w @mosga/ui',
+      '@mosga/replay-bundle && npm run build -w @mosga/replay-runtime && npm run build -w @mosga/replay-proxy && npm run build -w @mosga/ui',
     );
     expect(rootManifest.scripts.typecheck).toContain(
-      '@mosga/replay-bundle && npm run typecheck -w @mosga/replay-runtime && npm run typecheck -w @mosga/ui',
+      '@mosga/replay-bundle && npm run typecheck -w @mosga/replay-runtime && npm run typecheck -w @mosga/replay-proxy && npm run typecheck -w @mosga/ui',
     );
     expect(
       readFileSync(path.join(repositoryRoot, 'README.md'), 'utf8'),
     ).toContain(
-      'contracts → readers → sanitizer → replay-bundle → replay-runtime → ui',
+      'contracts → readers → sanitizer → replay-bundle → replay-runtime → replay-proxy → ui',
     );
   });
 });
