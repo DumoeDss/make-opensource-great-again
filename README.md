@@ -37,7 +37,7 @@
 
 ```bash
 npm install        # 安装全部 workspace 依赖
-npm run build      # 构建全部包（contracts → readers → sanitizer → ui → daemon → publisher → direct-submit）
+npm run build      # 构建全部包（contracts → readers → sanitizer → replay-bundle → replay-runtime → replay-proxy → replay-submit → ui → daemon → publisher → direct-submit）
 npm test           # vitest 全量测试
 npm run typecheck  # 全包类型检查
 ```

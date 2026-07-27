@@ -15,7 +15,8 @@
   },
   "files": [
     "dist",
-    "SCHEMA.md"
+    "SCHEMA.md",
+    "REPLAY_BUNDLE.md"
   ],
   "scripts": {
     "build": "tsup",

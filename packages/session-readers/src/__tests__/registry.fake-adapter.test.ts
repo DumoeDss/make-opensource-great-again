@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CliProjectRef, CliSessionRef, ParsedMessage } from '@mosga/contracts';
+import type {
+  CliProjectRef,
+  CliSessionRef,
+  NativeCaptureResult,
+  ParsedMessage,
+} from '@mosga/contracts';
 
 import { getAdapter, listAdapters, registerAdapter } from '../adapter/registry.js';
 import type { CliSourceAdapter } from '../adapter/types.js';
@@ -26,6 +31,17 @@ const fakeCodexAdapter: CliSourceAdapter = {
   parseTranscriptToMessages(): ParsedMessage[] {
     return [];
   },
+  captureNativeSession(): NativeCaptureResult {
+    return {
+      ok: false,
+      error: {
+        schemaVersion: '1.0.0',
+        sourceCli: 'codex',
+        code: 'unsupported-format',
+        message: 'Fake adapter does not capture sessions.',
+      },
+    };
+  },
 };
 
 describe('registry accommodates a second adapter', () => {
@@ -40,5 +56,6 @@ describe('registry accommodates a second adapter', () => {
     const ids = listAdapters().map((a) => a.id);
     expect(ids).toContain('claude-code');
     expect(ids).toContain('fake-codex');
+    expect(fakeCodexAdapter.captureNativeSession).toBeTypeOf('function');
   });
 });

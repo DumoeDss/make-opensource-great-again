@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import {
+  ReplayFindingSchema,
+  ReplayOpaqueItemSchema,
+} from '@mosga/contracts';
 
 /**
  * Rule + report + artifact schemas for `@mosga/sanitizer` (design D7).
@@ -226,3 +230,109 @@ export const SanitizationReportSchema = z.object({
   }),
 });
 export type SanitizationReport = z.infer<typeof SanitizationReportSchema>;
+
+// ---------------------------------------------------------------------------
+// ReplayBundle-native report model
+// ---------------------------------------------------------------------------
+
+export const REPLAY_REPORT_VERSION = '1.0.0' as const;
+
+export const ReplaySanitizationGateSchema = z
+  .object({
+    schemaVersion: z.literal(REPLAY_REPORT_VERSION),
+    blockingTotal: z.number().int().nonnegative(),
+    blockingPending: z.number().int().nonnegative(),
+    opaquePending: z.number().int().nonnegative(),
+    unlocked: z.boolean(),
+  })
+  .strict();
+export type ReplaySanitizationGate = z.infer<
+  typeof ReplaySanitizationGateSchema
+>;
+
+export const ReplayLayerSummarySchema = z
+  .object({
+    secrets: z
+      .object({
+        total: z.number().int().nonnegative(),
+        pending: z.number().int().nonnegative(),
+      })
+      .strict(),
+    custom: z
+      .object({
+        total: z.number().int().nonnegative(),
+        pending: z.number().int().nonnegative(),
+      })
+      .strict(),
+    normalization: z
+      .object({
+        total: z.number().int().nonnegative(),
+        byCategory: z.record(z.string(), z.number().int().nonnegative()),
+      })
+      .strict(),
+    guard: z
+      .object({
+        total: z.number().int().nonnegative(),
+        pending: z.number().int().nonnegative(),
+      })
+      .strict(),
+  })
+  .strict();
+export type ReplayLayerSummary = z.infer<typeof ReplayLayerSummarySchema>;
+
+export const ReplaySanitizationReportSchema = z
+  .object({
+    schemaVersion: z.literal(REPLAY_REPORT_VERSION),
+    reportVersion: z.literal(REPLAY_REPORT_VERSION),
+    draftId: z.string().min(1),
+    draftContentHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+    sanitizationRulesetVersion: z.string().min(1),
+    generatedAt: z.string().datetime({ offset: true }),
+    findings: z.array(ReplayFindingSchema),
+    opaqueItems: z.array(ReplayOpaqueItemSchema),
+    layerSummary: ReplayLayerSummarySchema,
+    gate: ReplaySanitizationGateSchema,
+  })
+  .strict();
+export type ReplaySanitizationReport = z.infer<
+  typeof ReplaySanitizationReportSchema
+>;
+
+export const ReplayScanErrorCodeSchema = z.enum([
+  'invalid-draft',
+  'scan-failed',
+]);
+export type ReplayScanErrorCode = z.infer<typeof ReplayScanErrorCodeSchema>;
+
+export const ReplayScanErrorSchema = z
+  .object({
+    schemaVersion: z.literal(REPLAY_REPORT_VERSION),
+    code: ReplayScanErrorCodeSchema,
+    message: z.string().min(1),
+  })
+  .strict();
+export type ReplayScanError = z.infer<typeof ReplayScanErrorSchema>;
+
+export const ReplayScanSuccessSchema = z
+  .object({
+    ok: z.literal(true),
+    report: ReplaySanitizationReportSchema,
+  })
+  .strict();
+export type ReplayScanSuccess = z.infer<typeof ReplayScanSuccessSchema>;
+
+export const ReplayScanFailureSchema = z
+  .object({
+    ok: z.literal(false),
+    error: ReplayScanErrorSchema,
+  })
+  .strict();
+export type ReplayScanFailure = z.infer<typeof ReplayScanFailureSchema>;
+
+export const ReplayScanResultSchema = z.discriminatedUnion('ok', [
+  ReplayScanSuccessSchema,
+  ReplayScanFailureSchema,
+]);
+export type ReplayScanResultContract = z.infer<
+  typeof ReplayScanResultSchema
+>;

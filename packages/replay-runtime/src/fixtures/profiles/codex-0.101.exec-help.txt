@@ -1,0 +1,3 @@
+Usage: codex exec [options]
+exec resume <session-id> -
+stdin prompt supported

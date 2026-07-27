@@ -11,9 +11,10 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { ApiClient } from '../../api/client';
-import type { SanitizationReport, SanitizedSession, SubmissionReceipt } from '../../api/types';
+import type { CliResumeReceipt, SanitizationReport, SanitizedSession, SubmissionReceipt } from '../../api/types';
 import { usePublication } from '../../lib/usePublication';
 import { ExportPreview } from '../ExportPreview';
+import { ReplayPreparation } from '../ReplayPreparation';
 import {
   canPreviewPublication,
   PublicationStatusView,
@@ -29,7 +30,7 @@ interface ExitCardsProps {
   exported: SanitizedSession | null;
   exporting?: boolean;
   onExport: () => void;
-  onSubmitted: (receipt: SubmissionReceipt) => void;
+  onSubmitted: (receipt: SubmissionReceipt | CliResumeReceipt) => void;
   /** A successful 出口① publish → the journey's 已完成 state. */
   onPublished: () => void;
   /** Return an attributed publication error to the disposition workspace. */
@@ -57,6 +58,10 @@ export function ExitCards({
   const { t } = useTranslation();
   const [showExport, setShowExport] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
+  // The sealed replay bundle produced by the preparation flow; passed to
+  // SubmitPanel so cli-resume submit is enabled end-to-end.
+  const [replayBundle, setReplayBundle] = useState<unknown>(null);
+  const [bundleContentHash, setBundleContentHash] = useState<string | undefined>(undefined);
   const publication = usePublication(client);
 
   // Route an exit action through the donation confirm if provided, else run it.
@@ -147,10 +152,22 @@ export function ExitCards({
             {t('exit.twoDescription')}
           </p>
           <div className="mt-4">
+            <ReplayPreparation
+              client={client}
+              reviewId={reviewId}
+              onSealed={(bundle, hash) => {
+                setReplayBundle(bundle);
+                setBundleContentHash(hash);
+              }}
+            />
+          </div>
+          <div className="mt-4">
             <SubmitPanel
               client={client}
               reviewId={reviewId}
               gate={gate}
+              replayBundle={replayBundle}
+              bundleContentHash={bundleContentHash}
               onSubmitted={onSubmitted}
               beforeSubmit={requireAffirm}
             />

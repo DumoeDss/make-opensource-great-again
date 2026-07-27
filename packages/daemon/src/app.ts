@@ -33,20 +33,43 @@ import {
   type CompiledRuleset,
   DispositionSchema,
   NormalizationCategorySchema,
+  REPLAY_REPORT_VERSION,
+  ReplayFindingDispositionSchema,
+  ReplayOpaqueDispositionSchema,
   applyDispositions,
+  applyReplayDispositions,
   batchByRule,
   batchByType,
   compileRuleset,
   computeGate,
   type SanitizationReport,
+  scanReplayDraft,
   setFindingDisposition,
   setNonTextDisposition,
 } from '@mosga/sanitizer';
-import { ContributionConsentSchema, ReplayModeSchema } from '@mosga/contracts';
+import { CliResumeConsentSchema, ContributionConsentSchema, ReplayModeSchema } from '@mosga/contracts';
+import { createReplayDraft, sealReplayBundle } from '@mosga/replay-bundle';
+import { submitCliResume } from '@mosga/replay-submit';
+import type { ReplayProxy, ReplayUpstreamTarget } from '@mosga/replay-proxy';
+import type { ReplayRuntime } from '@mosga/replay-runtime';
 import { z } from 'zod';
 
 import { buildEnvelope } from './envelope.js';
 import { createRouter, readJsonBody, sendJson, type HandlerResult, type Route } from './http.js';
+import {
+  setReplayFindingDisposition,
+  setReplayOpaqueDisposition,
+  type ReplayReviewState,
+} from './replayReview.js';
+import {
+  buildInitialOmissions,
+  buildReplayRuntimePolicy,
+  buildSanitizationProvenance,
+  buildTerminalManifestSeed,
+  discoverInstructionCandidates,
+  newDecisionVersion,
+  newDraftId,
+} from './replayPrep.js';
 import {
   createProviderStore,
   ProviderConflictError,
@@ -137,6 +160,18 @@ export interface AppOptions {
   providerKeysPath?: string;
   /** Path to the master keyfile encrypting the key store. Default `~/.mosga/master.key`. */
   masterKeyFilePath?: string;
+  /**
+   * The replay runtime for cli-resume submissions (出口② request-authenticity
+   * path). Injectable for tests (a fake that launches no real CLI); when absent,
+   * cli-resume submissions return a SUBMIT_FAILED configuration error and the
+   * reconstructed-API path is unaffected.
+   */
+  replayRuntime?: ReplayRuntime;
+  /**
+   * The replay proxy for cli-resume submissions. Same injection model as
+   * `replayRuntime`.
+   */
+  replayProxy?: ReplayProxy;
   publication?: GitHubPublication;
   /** Internal/test-only; no CLI or HTTP surface exposes this managed root. */
   publicationRoot?: string;
@@ -179,6 +214,44 @@ const SubmitBody = z.object({
   providerId: z.string(),
   model: z.string(),
   consent: ContributionConsentSchema,
+});
+
+/**
+ * Cli-resume submit body. The consent carries `replayMode: 'cli-resume'` and
+ * binds the validated bundle content hash. The sealed `ReplayBundle` is sent
+ * directly (it carries no API key material). A separate schema from `SubmitBody`
+ * keeps the no-fallback boundary clean: the handler branches on
+ * `consent.replayMode` BEFORE validating either schema.
+ */
+const CliResumeSubmitBody = z.object({
+  providerId: z.string(),
+  model: z.string(),
+  consent: CliResumeConsentSchema,
+  bundle: z.unknown(),
+});
+
+/**
+ * Replay-preparation body. The user chooses the delivery target (provider +
+ * model); the daemon captures the native session, builds the draft, and scans it.
+ * No secrets, no bundle content — only the target identifiers.
+ */
+const ReplayPrepareBody = z.object({
+  targetProviderId: z.string().min(1),
+  targetModel: z.string().min(1),
+});
+
+/** Replay-finding disposition body (pending / replace / delete / allow). */
+const ReplayFindingDispositionBody = z.object({
+  disposition: ReplayFindingDispositionSchema,
+});
+
+/**
+ * Replay-opaque disposition body. `remove`/`keep`/`pending` need no replacement;
+ * `replace` requires an explicit JSON replacement value (never opaque bytes).
+ */
+const ReplayOpaqueDispositionBody = z.object({
+  disposition: ReplayOpaqueDispositionSchema,
+  replacement: z.unknown().optional(),
 });
 
 /** The four supported request formats for a custom provider. */
@@ -372,9 +445,12 @@ export function createApp(options: AppOptions = {}): App {
         const messages = adapter.parseTranscriptToMessages(ref.path);
         const session = buildEnvelope(ref, messages, { exportedAt: options.now });
 
-        const { reviewId, state } = store.create(session, getDefaultRuleset(), {
-          generatedAt: options.now,
-        });
+        const { reviewId, state } = store.create(
+          session,
+          getDefaultRuleset(),
+          { generatedAt: options.now },
+          { sourceId, ref },
+        );
         return {
           status: 201,
           json: {
@@ -665,6 +741,33 @@ export function createApp(options: AppOptions = {}): App {
       handler: async ({ params, body }) => {
         const state = store.get(params.reviewId);
         if (!state) return notFound(`unknown review "${params.reviewId}"`);
+
+        // ---- NO-FALLBACK BRANCH ---------------------------------------
+        // Branch on consent.replayMode BEFORE any side effect. cli-resume goes
+        // through @mosga/replay-submit (request-authenticity path); single-shot
+        // / turn-by-turn through the existing reconstructed-API submit(). A
+        // cli-resume failure returns a terminal HTTP error and NEVER falls
+        // through to the reconstructed path. This explicit branch is the third
+        // level of the no-fallback guarantee (structural + runtime + handler).
+        const consentMode = readConsentReplayMode(body);
+        if (consentMode === 'cli-resume') {
+          return handleCliResumeSubmit({
+            body,
+            options,
+            replayRuntime: options.replayRuntime,
+            replayProxy: options.replayProxy,
+            resolveApiKey: (id) =>
+              resolveProviderKey(id, {
+                keyConfigPath: options.providerKeyConfigPath,
+                storeKeyLookup: (pid) => providerStore.getKey(pid),
+              }),
+            resolveTarget: (id) => resolveProvider(id, mergedTargets()),
+            now: options.now,
+            reviewId: params.reviewId,
+          });
+        }
+
+        // ---- Reconstructed-API compatibility path (UNCHANGED) --------
         const parsed = SubmitBody.safeParse(body);
         if (!parsed.success) return badRequest(parsed.error.message);
 
@@ -740,6 +843,261 @@ export function createApp(options: AppOptions = {}): App {
           console.error(`[submit] unexpected error for review ${params.reviewId}:`, err);
           return { status: 500, json: { error: 'submission failed', code: 'SUBMIT_FAILED' } };
         }
+      },
+    },
+
+    // ---- replay preparation (cli-resume bundle pipeline) ------------------
+    // The prepare → triage → seal flow produces the sealed ReplayBundle the
+    // cli-resume submit branch consumes. Additive to the existing submit +
+    // compatibility routes; never creates a parallel submit path.
+
+    {
+      method: 'POST',
+      pattern: '/api/reviews/:reviewId/replay/prepare',
+      handler: ({ params, body }) => {
+        const state = store.get(params.reviewId);
+        if (!state) return notFound(`unknown review "${params.reviewId}"`);
+        const parsed = ReplayPrepareBody.safeParse(body);
+        if (!parsed.success) return badRequest(parsed.error.message);
+
+        // The source ref is required to call captureNativeSession. Reviews
+        // created before this field existed have no ref — fail closed.
+        const source = state.source;
+        if (!source) {
+          return {
+            status: 409,
+            json: {
+              error: 'replay preparation requires a held source-session ref (re-create the review)',
+              code: 'SOURCE_REF_UNAVAILABLE',
+            },
+          };
+        }
+        const adapter = getAdapter(source.sourceId);
+        if (!adapter) return notFound(`unknown source "${source.sourceId}"`);
+
+        // 1. Native capture — fail closed on any error (malformed, partial,
+        // compressed). Never inherits the normalized readers' skip-and-continue.
+        const capture = adapter.captureNativeSession(source.ref);
+        if (!capture.ok) {
+          return {
+            status: 422,
+            json: {
+              error: capture.error.message,
+              code: 'CAPTURE_FAILED',
+              captureError: capture.error.code,
+              sourceCli: capture.error.sourceCli,
+            },
+          };
+        }
+
+        // 2. Discover instruction candidates from the project cwd (v1: scan
+        // CLAUDE.md / AGENTS.md in the session's cwd only — conservative).
+        const candidates = discoverInstructionCandidates(source.ref.cwd);
+        const omissions = buildInitialOmissions(candidates.length);
+        const delivery = {
+          schemaVersion: '1.0.0' as const,
+          targetProviderId: parsed.data.targetProviderId,
+          targetModel: parsed.data.targetModel,
+        };
+        const ruleset = getDefaultRuleset();
+        const sanitization = buildSanitizationProvenance(
+          ruleset.rulesetVersion,
+          REPLAY_REPORT_VERSION,
+        );
+
+        // 3. Build the terminal-manifest seed + fixed v1 runtime policy from
+        // the capture's safe source summary, trajectory, and delivery target.
+        const seed = buildTerminalManifestSeed(capture, delivery, sanitization);
+        const runtimePolicy = buildReplayRuntimePolicy(capture);
+
+        // 4. Create the replay draft. A construction error (identity mismatch,
+        // invalid candidate, unsafe stage path) is fail-closed.
+        const draftId = newDraftId();
+        let draft;
+        try {
+          draft = createReplayDraft({
+            draftId,
+            nativeCapture: capture,
+            instructionCandidates: candidates,
+            terminalManifestSeed: seed,
+            runtimePolicy,
+            delivery,
+            omissions,
+          });
+        } catch (err) {
+          return {
+            status: 422,
+            json: {
+              error: 'replay draft construction failed',
+              code: 'DRAFT_INVALID',
+              detail: (err as Error).message,
+            },
+          };
+        }
+
+        // 5. Scan the draft with the shared compiled ruleset.
+        const scan = scanReplayDraft(draft, ruleset, { generatedAt: options.now });
+        if (!scan.ok) {
+          return {
+            status: 422,
+            json: {
+              error: scan.error.message,
+              code: 'SCAN_FAILED',
+              scanError: scan.error.code,
+            },
+          };
+        }
+
+        // 6. Hold the draft + report + mapper + ruleset server-side. The mapper
+        // and ruleset are the exact pair apply needs at seal time — never mix
+        // a draft/report/mapper from separate review runs.
+        const replay: ReplayReviewState = {
+          draft,
+          report: scan.report,
+          mapper: scan.mapper,
+          ruleset,
+          rulesetVersion: ruleset.rulesetVersion,
+          reportVersion: REPLAY_REPORT_VERSION,
+          delivery,
+          rulesetWarnings: scan.rulesetWarnings,
+        };
+        store.setReplay(params.reviewId, replay);
+
+        return {
+          status: 201,
+          json: {
+            draftId,
+            report: scan.report,
+            rulesetWarnings: scan.rulesetWarnings,
+            delivery,
+            source: capture.source,
+            trajectory: capture.trajectory,
+          },
+        };
+      },
+    },
+
+    {
+      method: 'POST',
+      pattern: '/api/reviews/:reviewId/replay/findings/:findingId/disposition',
+      handler: ({ params, body }) => {
+        const replay = store.getReplay(params.reviewId);
+        if (!replay) return notFound(`no replay preparation for review "${params.reviewId}"`);
+        const parsed = ReplayFindingDispositionBody.safeParse(body);
+        if (!parsed.success) return badRequest(parsed.error.message);
+        if (!replay.report.findings.some((f) => f.id === params.findingId)) {
+          return notFound(`unknown replay finding "${params.findingId}"`);
+        }
+        const report = setReplayFindingDisposition(
+          replay.report,
+          params.findingId,
+          parsed.data.disposition,
+        );
+        store.setReplayReport(params.reviewId, report);
+        return { status: 200, json: { report, gate: report.gate } };
+      },
+    },
+
+    {
+      method: 'POST',
+      pattern: '/api/reviews/:reviewId/replay/opaque/:itemId/disposition',
+      handler: ({ params, body }) => {
+        const replay = store.getReplay(params.reviewId);
+        if (!replay) return notFound(`no replay preparation for review "${params.reviewId}"`);
+        const parsed = ReplayOpaqueDispositionBody.safeParse(body);
+        if (!parsed.success) return badRequest(parsed.error.message);
+        if (!replay.report.opaqueItems.some((i) => i.id === params.itemId)) {
+          return notFound(`unknown replay opaque item "${params.itemId}"`);
+        }
+        if (parsed.data.disposition === 'replace' && parsed.data.replacement === undefined) {
+          return badRequest('a replace disposition requires an explicit JSON replacement');
+        }
+        const report = setReplayOpaqueDisposition(
+          replay.report,
+          params.itemId,
+          parsed.data.disposition,
+          parsed.data.replacement ?? null,
+        );
+        store.setReplayReport(params.reviewId, report);
+        return { status: 200, json: { report, gate: report.gate } };
+      },
+    },
+
+    {
+      method: 'POST',
+      pattern: '/api/reviews/:reviewId/replay/seal',
+      handler: ({ params }) => {
+        const replay = store.getReplay(params.reviewId);
+        if (!replay) return notFound(`no replay preparation for review "${params.reviewId}"`);
+
+        // The replay gate must be unlocked before sealing is permitted. The
+        // gate is recomputed from the held findings + opaque items (last-write-
+        // wins discipline means a transient desync stays MORE locked).
+        if (!replay.report.gate.unlocked) {
+          return {
+            status: 409,
+            json: {
+              error: 'replay gate is locked; disposition all blocking findings + opaque items first',
+              code: 'REPLAY_GATE_LOCKED',
+              gate: replay.report.gate,
+            },
+          };
+        }
+
+        // Apply the reviewed dispositions. Binds the draft id, canonical draft-
+        // content hash, expected ruleset version, compiled ruleset, terminal-
+        // seed provenance, report, and the replay-scoped pseudonym mapper
+        // returned by the matching scan — never a mix from separate runs.
+        const applied = applyReplayDispositions(replay.draft, replay.report, replay.mapper, {
+          ruleset: replay.ruleset,
+          expectedRulesetVersion: replay.rulesetVersion,
+          decisionVersion: newDecisionVersion(),
+          approvedAt: options.now ?? new Date().toISOString(),
+        });
+        if (!applied.ok) {
+          return {
+            status: 422,
+            json: {
+              error: applied.error.message,
+              code: 'APPLY_FAILED',
+              applyError: applied.error.code,
+              findingId: applied.error.findingId,
+            },
+          };
+        }
+        if (!applied.sealablePayload) {
+          // The gate was unlocked but the post-apply verification found a
+          // surviving blocking canary or unresolved privacy decision. This is
+          // fail-closed by construction — no sealed bundle is produced.
+          return {
+            status: 409,
+            json: {
+              error: 'replay review resolved to a non-sealable payload (unresolved blocking or privacy finding)',
+              code: 'NOT_SEALABLE',
+              gate: applied.gate,
+            },
+          };
+        }
+
+        // Seal the reviewed payload → the bundle the cli-resume submit consumes.
+        const bundle = sealReplayBundle(applied.sealablePayload);
+        store.setSealedBundle(params.reviewId, bundle);
+
+        return {
+          status: 200,
+          json: {
+            bundle,
+            bundleContentHash: bundle.integrity.contentHash,
+            summary: {
+              draftId: replay.draft.draftId,
+              sourceCli: replay.draft.source.sourceCli,
+              trajectory: replay.draft.terminalManifestSeed.trajectory,
+              instructionCount: replay.draft.instructionSnapshot.files.length,
+              findingCount: replay.report.findings.length,
+              opaqueItemCount: replay.report.opaqueItems.length,
+            },
+          },
+        };
       },
     },
 
@@ -919,4 +1277,150 @@ function redactPendingBlocking(report: SanitizationReport): SanitizationReport {
       : f,
   );
   return { ...report, findings };
+}
+
+// -----------------------------------------------------------------------
+// Cli-resume submit helpers (出口② request-authenticity path)
+// -----------------------------------------------------------------------
+
+/** Read `consent.replayMode` from the raw body WITHOUT validating the full schema. */
+function readConsentReplayMode(body: unknown): string | undefined {
+  if (body !== null && typeof body === 'object') {
+    const consent = (body as { consent?: { replayMode?: string } }).consent;
+    if (consent && typeof consent === 'object') {
+      return consent.replayMode;
+    }
+  }
+  return undefined;
+}
+
+/** Map the direct-submit API format to the replay upstream API format. */
+function mapToReplayApiFormat(
+  apiFormat: string,
+):
+  | 'anthropic-messages'
+  | 'openai-chat-completions'
+  | 'openai-responses'
+  | null {
+  switch (apiFormat) {
+    case 'anthropic':
+      return 'anthropic-messages';
+    case 'openai':
+      return 'openai-chat-completions';
+    case 'openai-response':
+      return 'openai-responses';
+    default:
+      return null;
+  }
+}
+
+interface CliResumeHandlerContext {
+  readonly body: unknown;
+  readonly options: AppOptions;
+  readonly replayRuntime: ReplayRuntime | undefined;
+  readonly replayProxy: ReplayProxy | undefined;
+  readonly resolveApiKey: (providerId: string) => string | undefined;
+  readonly resolveTarget: (providerId: string) => { apiBaseUrl: string; apiFormat: string } | undefined;
+  readonly now: string | undefined;
+  readonly reviewId: string;
+}
+
+/**
+ * Handle a cli-resume submission via @mosga/replay-submit. A cli-resume failure
+ * returns a terminal HTTP error and NEVER falls through to the reconstructed-API
+ * submit() path.
+ */
+async function handleCliResumeSubmit(ctx: CliResumeHandlerContext): Promise<HandlerResult> {
+  const parsed = CliResumeSubmitBody.safeParse(ctx.body);
+  if (!parsed.success) return badRequest(parsed.error.message);
+
+  const { providerId, model, consent, bundle } = parsed.data;
+
+  // Runtime + proxy must be configured for cli-resume. If they're absent, the
+  // daemon was not started with replay support — return a configuration error,
+  // not a fallback.
+  if (!ctx.replayRuntime || !ctx.replayProxy) {
+    return {
+      status: 500,
+      json: { error: 'cli-resume replay runtime/proxy not configured', code: 'SUBMIT_FAILED' },
+    };
+  }
+
+  // Resolve the upstream target + key (same provider store as the reconstructed path).
+  const target = ctx.resolveTarget(providerId);
+  if (!target) return notFound(`unknown provider "${providerId}"`);
+  const apiKey = ctx.resolveApiKey(providerId);
+  if (!apiKey) {
+    return { status: 400, json: { error: `no API key configured for provider "${providerId}"`, code: 'KEY_NOT_CONFIGURED' } };
+  }
+  const replayFormat = mapToReplayApiFormat(target.apiFormat);
+  if (!replayFormat) {
+    return {
+      status: 422,
+      json: { error: `provider API format "${target.apiFormat}" is not supported for cli-resume`, code: 'BUNDLE_INVALID' },
+    };
+  }
+
+  const upstream: ReplayUpstreamTarget = {
+    targetProviderId: providerId,
+    targetModel: model,
+    upstreamBaseUrl: target.apiBaseUrl,
+    upstreamApiKey: apiKey,
+    upstreamApiFormat: replayFormat,
+  };
+
+  const result = await submitCliResume({
+    bundle,
+    consent,
+    upstream,
+    runtime: ctx.replayRuntime,
+    proxy: ctx.replayProxy,
+    now: ctx.now ? () => ctx.now! : undefined,
+  });
+
+  if (result.ok) {
+    return { status: 200, json: { receipt: result.receipt } };
+  }
+
+  // Map the orchestration failure to stable HTTP codes. NEVER fall through to
+  // the reconstructed-API path.
+  return mapCliResumeFailure(result.error);
+}
+
+/** Map a CliResumeSubmitFailure to a stable HTTP error response. */
+function mapCliResumeFailure(error: {
+  readonly code: string;
+  readonly sourceCli: string | null;
+  readonly replayCliVersion: string | null;
+  readonly stage: string;
+}): HandlerResult {
+  switch (error.code) {
+    case 'consent-invalid':
+      return { status: 422, json: { error: 'cli-resume consent validation failed', code: 'CONSENT_INVALID' } };
+    case 'bundle-invalid':
+      return { status: 422, json: { error: 'cli-resume bundle validation failed', code: 'BUNDLE_INVALID' } };
+    case 'runtime-unsupported':
+      return {
+        status: 422,
+        json: {
+          error: `cli-resume runtime unsupported${error.sourceCli ? ` (source CLI: ${error.sourceCli})` : ''}${error.replayCliVersion ? ` — installed version ${error.replayCliVersion} is not supported; install or update the required CLI` : ''}`,
+          code: 'RUNTIME_UNSUPPORTED',
+          sourceCli: error.sourceCli,
+          replayCliVersion: error.replayCliVersion,
+        },
+      };
+    case 'runtime-failed':
+      return { status: 500, json: { error: 'cli-resume runtime failure', code: 'RUNTIME_FAILED' } };
+    case 'proxy-failed':
+      return { status: 500, json: { error: 'cli-resume proxy failure', code: 'PROXY_FAILED' } };
+    case 'upstream-failed':
+      return { status: 500, json: { error: 'cli-resume upstream failure', code: 'PROXY_FAILED' } };
+    case 'cancelled':
+      return { status: 499, json: { error: 'cli-resume cancelled', code: 'SUBMIT_FAILED' } };
+    case 'timed-out':
+      return { status: 504, json: { error: 'cli-resume timed out', code: 'SUBMIT_FAILED' } };
+    default:
+      console.error('[cli-resume] unexpected failure code:', error.code, 'at stage:', error.stage);
+      return { status: 500, json: { error: 'cli-resume submission failed', code: 'SUBMIT_FAILED' } };
+  }
 }

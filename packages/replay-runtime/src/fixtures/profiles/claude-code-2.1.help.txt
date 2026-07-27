@@ -1,0 +1,7 @@
+Usage: claude [options]
+--print
+--resume <session-id>
+--dangerously-skip-permissions
+stdin prompt supported
+isolated-home supported
+ANTHROPIC_BASE_URL route override

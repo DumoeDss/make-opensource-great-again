@@ -34,3 +34,16 @@ export {
 
 // Extracted JSONL entry / content-block / message shapes.
 export type { JsonlEntry, ContentBlock, ParsedAgentMessage } from './types.js';
+
+// Strict source-native capture primitive. Source adapters add their safe
+// summary/trajectory extraction without changing normalized parsing.
+export {
+  captureStrictJsonl,
+  baseSourceSummary,
+  baseTrajectory,
+  completeNativeCapture,
+  extractClaudeNativeContext,
+  extractCodexNativeContext,
+  type StrictJsonlCaptureOptions,
+  type NativeArtifactCaptureResult,
+} from './nativeCapture.js';

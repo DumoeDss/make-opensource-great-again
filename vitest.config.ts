@@ -14,6 +14,10 @@ export default defineConfig({
       '@mosga/contracts': src('contracts'),
       '@mosga/session-readers': src('session-readers'),
       '@mosga/sanitizer': src('sanitizer'),
+      '@mosga/replay-bundle': src('replay-bundle'),
+      '@mosga/replay-runtime': src('replay-runtime'),
+      '@mosga/replay-proxy': src('replay-proxy'),
+      '@mosga/replay-submit': src('replay-submit'),
       '@mosga/direct-submit': src('direct-submit'),
       '@mosga/publisher': src('publisher'),
       // `@` → @mosga/ui's src, matching the ported omnicross primitives' `@/...`
@@ -29,6 +33,11 @@ export default defineConfig({
     // Default to node; UI component tests opt into jsdom per-file via a
     // `// @vitest-environment jsdom` header comment.
     environment: 'node',
+    // Real process-tree tests (Windows Job Object lifecycle, capability-probe
+    // descendant termination, executable-identity re-hash of ~75MB CLI binaries)
+    // legitimately exceed vitest's 5s default. 30s gives headroom while still
+    // failing a genuinely-hung test fast (a >120s hang trips at 30s, not never).
+    testTimeout: 30_000,
     // Initialize i18next once globally so `useTranslation()` resolves in every
     // test without an `I18nextProvider` wrapper. The module self-initializes
     // synchronously with bundled JSON resources (no Suspense, no HTTP).

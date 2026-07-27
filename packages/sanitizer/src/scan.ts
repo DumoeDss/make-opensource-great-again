@@ -15,6 +15,7 @@ import {
   type FindingField,
   type FindingLocation,
   type NonTextItem,
+  type NormalizationCategory,
   type NormalizedRule,
   type RuleAllowlist,
   type SanitizationReport,
@@ -320,7 +321,241 @@ export interface ScanOptions {
   generatedAt?: string;
 }
 
+/** Internal source-agnostic string unit consumed by the shared detectors. */
+export interface DetectorScanUnit<Location> {
+  text: string;
+  location(span: { start: number; end: number }): Location;
+  /** Legacy-only field-scoped encoded project-key normalization. */
+  encodedProjectKey?: boolean;
+}
+
+/** Source-agnostic detector output before a consumer assembles its report. */
+export interface DetectorFinding<Location> {
+  id: string;
+  layer: 'secrets' | 'custom' | 'normalization' | 'guard';
+  ruleId: string;
+  category?: NormalizationCategory;
+  location: Location;
+  matchPreview: string;
+  replacementSuggestion: string;
+  disposition: 'pending';
+  blocking: boolean;
+}
+
+export interface DetectorScanOptions<Location> {
+  findingId(location: Location, ruleId: string): string;
+  warningLocation?: () => Location;
+  /** Legacy reports historically classify guards as `secrets`. */
+  guardLayer?: 'secrets' | 'guard';
+}
+
+export interface DetectorScanOutput<Location> {
+  findings: DetectorFinding<Location>[];
+  rulesetWarnings: RulesetWarning[];
+}
+
+/**
+ * Run the unchanged L1/L2/L3/guard detector semantics over arbitrary located
+ * strings. Legacy sessions and ReplayBundle drafts differ only in traversal and
+ * location shape; matcher behavior, redacted previews, pseudonyms, ordering,
+ * time/size guards, and replacement suggestions are shared here.
+ */
+export function scanDetectorUnits<Location>(
+  units: DetectorScanUnit<Location>[],
+  ruleset: CompiledRuleset,
+  mapper: PseudonymMapper,
+  options: DetectorScanOptions<Location>,
+): DetectorScanOutput<Location> {
+  const { matchers, warnings: rulesetWarnings } = compileMatchers(ruleset.rules);
+  const customMatchers = ruleset.customRules.map(compileCustom);
+  const findings: DetectorFinding<Location>[] = [];
+  const guardLayer = options.guardLayer ?? 'guard';
+
+  for (const warning of rulesetWarnings) {
+    if (warning.degradedTo !== 'none' || !options.warningLocation) continue;
+    const location = options.warningLocation();
+    findings.push({
+      id: options.findingId(
+        location,
+        `ruleset-compile-error:${warning.ruleId}`,
+      ),
+      layer: guardLayer,
+      ruleId: 'ruleset-compile-error',
+      location,
+      matchPreview: `rule "${warning.ruleId}" failed to compile on this runtime and has no keyword fallback; manual review required (${warning.reason})`,
+      replacementSuggestion: '',
+      disposition: 'pending',
+      blocking: true,
+    });
+  }
+
+  for (const unit of units) {
+    const full = unit.text;
+    const truncated = full.length > MAX_SCAN_CHARS;
+    const text = truncated ? full.slice(0, MAX_SCAN_CHARS) : full;
+    const started = Date.now();
+    let timedOut = false;
+
+    for (const matcher of matchers) {
+      if (Date.now() - started > FIELD_TIME_BUDGET_MS) {
+        timedOut = true;
+        break;
+      }
+      for (const hit of matchRule(matcher, text, ruleset.globalAllowlist)) {
+        const location = unit.location(hit.span);
+        findings.push({
+          id: options.findingId(location, hit.ruleId),
+          layer: 'secrets',
+          ruleId: hit.ruleId,
+          location,
+          matchPreview: redactPreview(hit.secretValue),
+          replacementSuggestion: `<SECRET:${hit.ruleId}>`,
+          disposition: 'pending',
+          blocking: true,
+        });
+      }
+    }
+
+    if (!timedOut) {
+      for (const matcher of customMatchers) {
+        if (Date.now() - started > FIELD_TIME_BUDGET_MS) {
+          timedOut = true;
+          break;
+        }
+        for (const hit of matchCustom(matcher, text)) {
+          const location = unit.location(hit.span);
+          findings.push({
+            id: options.findingId(location, hit.ruleId),
+            layer: 'custom',
+            ruleId: hit.ruleId,
+            location,
+            matchPreview: redactPreview(hit.secretValue),
+            replacementSuggestion:
+              matcher.rule.replacement ?? `<CUSTOM:${hit.ruleId}>`,
+            disposition: 'pending',
+            blocking: true,
+          });
+        }
+      }
+    }
+
+    if (!timedOut) {
+      for (const detector of L3_DETECTORS) {
+        if (Date.now() - started > FIELD_TIME_BUDGET_MS) {
+          timedOut = true;
+          break;
+        }
+        for (const match of detector.run(text)) {
+          const location = unit.location({
+            start: match.start,
+            end: match.end,
+          });
+          findings.push({
+            id: options.findingId(location, detector.category),
+            layer: 'normalization',
+            ruleId: detector.category,
+            category: detector.category,
+            location,
+            matchPreview: match.value,
+            replacementSuggestion: mapper.map(
+              detector.category,
+              match.value,
+            ),
+            disposition: 'pending',
+            blocking: false,
+          });
+        }
+      }
+    }
+
+    if (!timedOut && unit.encodedProjectKey) {
+      const decoded = decodeEncodedProjectKey(full);
+      if (decoded !== null) {
+        const location = unit.location({ start: 0, end: full.length });
+        findings.push({
+          id: options.findingId(location, 'path'),
+          layer: 'normalization',
+          ruleId: 'path',
+          category: 'path',
+          location,
+          matchPreview: full,
+          replacementSuggestion: mapper.map('path', decoded),
+          disposition: 'pending',
+          blocking: false,
+        });
+      }
+    }
+
+    if (timedOut || truncated) {
+      const location = unit.location({
+        start: 0,
+        end: Math.min(text.length, 1),
+      });
+      findings.push({
+        id: options.findingId(location, 'redos-guard'),
+        layer: guardLayer,
+        ruleId: 'redos-guard',
+        location,
+        matchPreview: timedOut
+          ? 'scan-time ceiling hit; field needs manual review'
+          : 'field exceeds scan size; tail needs manual review',
+        replacementSuggestion: '',
+        disposition: 'pending',
+        blocking: true,
+      });
+    }
+  }
+
+  return { findings, rulesetWarnings };
+}
+
 export function scanSession(
+  session: SanitizedSession,
+  ruleset: CompiledRuleset,
+  options: ScanOptions = {},
+): ScanResult {
+  const mapper = new PseudonymMapper();
+  const units = collectScanUnits(session);
+  const scan = scanDetectorUnits(
+    units.map((unit) => ({
+      text: unit.text,
+      location: (span: { start: number; end: number }) =>
+        locationOf(unit, span),
+      encodedProjectKey: unit.field === 'sessionProjectKey',
+    })),
+    ruleset,
+    mapper,
+    {
+      findingId,
+      warningLocation: () => ({
+        scope: 'session',
+        field: 'rulesetMeta',
+        span: { start: 0, end: 0 },
+      }),
+      guardLayer: 'secrets',
+    },
+  );
+  const findings = scan.findings as Finding[];
+  const nonTextItems = collectNonTextItems(session);
+  const report = assembleReport(
+    session,
+    ruleset,
+    findings,
+    nonTextItems,
+    options.generatedAt,
+  );
+  return {
+    report,
+    mapper,
+    rulesetWarnings: scan.rulesetWarnings,
+  };
+}
+
+/**
+ * Frozen pre-refactor implementation used only by the compatibility test to
+ * prove that the generic detector-unit seam did not change normalized output.
+ */
+export function scanSessionLegacyReference(
   session: SanitizedSession,
   ruleset: CompiledRuleset,
   options: ScanOptions = {},

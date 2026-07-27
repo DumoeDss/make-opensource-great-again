@@ -13,7 +13,12 @@
  * they are unit-testable against a temp dir) and never throw on a missing /
  * unreadable tree — they return what they can.
  */
-import type { CliProjectRef, CliSessionRef, ParsedMessage } from '@mosga/contracts';
+import type {
+  CliProjectRef,
+  CliSessionRef,
+  NativeCaptureResult,
+  ParsedMessage,
+} from '@mosga/contracts';
 
 export interface CliSourceAdapter {
   /** Stable source id (e.g. `"claude-code"`). */
@@ -51,4 +56,10 @@ export interface CliSourceAdapter {
    * file. Pure FS read; never throws.
    */
   parseTranscriptToMessages(transcriptPath: string): ParsedMessage[];
+
+  /**
+   * Strict, source-native capture for reviewed CLI replay. Unlike the normalized
+   * parser this fails closed and never returns a partial artifact.
+   */
+  captureNativeSession(ref: CliSessionRef): NativeCaptureResult;
 }

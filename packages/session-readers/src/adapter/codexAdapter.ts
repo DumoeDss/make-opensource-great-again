@@ -28,6 +28,11 @@ import path from 'node:path';
 import type { CliProjectRef, CliSessionRef, ParsedMessage } from '@mosga/contracts';
 
 import { parseCodexSession } from '../parseCodexSession.js';
+import {
+  captureStrictJsonl,
+  completeNativeCapture,
+  extractCodexNativeContext,
+} from '../nativeCapture.js';
 import type { CliSourceAdapter } from './types.js';
 
 const SOURCE_ID = 'codex';
@@ -274,5 +279,19 @@ export const codexAdapter: CliSourceAdapter = {
 
   parseTranscriptToMessages(transcriptPath: string): ParsedMessage[] {
     return parseCodexSession(transcriptPath);
+  },
+
+  captureNativeSession(ref: CliSessionRef) {
+    const captured = captureStrictJsonl({
+      sourceCli: 'codex',
+      sourceFormat: 'codex-jsonl',
+      sessionIdAlias: ref.id,
+      transcriptPath: ref.path,
+    });
+    if (!captured.ok) return captured;
+    const { source, trajectory } = extractCodexNativeContext(
+      captured.artifact,
+    );
+    return completeNativeCapture(captured, source, trajectory);
   },
 };
