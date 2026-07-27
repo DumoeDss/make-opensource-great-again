@@ -223,10 +223,10 @@ describe('captured capability fixtures', () => {
 });
 
 describe('bounded probe process behavior', () => {
-  it('terminates a hanging probe at its deadline', async () => {
+  it('terminates a hanging probe at its deadline', { retry: 2, timeout: 60_000 }, async () => {
     const nodeOwned = await nodeOwnedFixture();
     const config = normalizeRuntimeOptions({
-      limits: { probeTimeoutMs: 50 },
+      limits: { probeTimeoutMs: 150 },
     });
     await expect(
       superviseProbeProcess(

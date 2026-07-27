@@ -570,6 +570,14 @@ export async function superviseProbeProcess(
       for (const signal of signals) {
         signal.addEventListener('abort', onAbort, { once: true });
       }
+      // Close the abort-during-verify race: if the signal aborted in the gap
+      // between the initial pre-check (before the Promise, during
+      // verifyOwnedExecutable) and listener registration (after spawn), the
+      // abort event was dispatched with no listener registered to catch it.
+      // Re-check signal.aborted here so the handler fires immediately.
+      if (signals.some((signal) => signal.aborted)) {
+        onAbort();
+      }
       deadline = setTimeout(
         () => terminate(new RuntimeFault('cli-probe-failed', 'probe', sourceCli)),
         config.limits.probeTimeoutMs,

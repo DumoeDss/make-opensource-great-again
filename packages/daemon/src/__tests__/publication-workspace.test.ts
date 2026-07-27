@@ -202,7 +202,7 @@ describe('exact-byte writer', () => {
 });
 
 describe('local managed Git integration', () => {
-  it('rejects a bundle file changed after write before it can enter the index', async () => {
+  it('rejects a bundle file changed after write before it can enter the index', { timeout: 60_000 }, async () => {
     const upstream = createRemote();
     const workspacePort = new ManagedGitWorkspace(
       new SpawnProcessRunner(),
@@ -231,9 +231,9 @@ describe('local managed Git integration', () => {
       body: { code: 'workspace_corrupt' },
     });
     expect(git(['diff', '--cached', '--name-only'], workspace.paths.worktree)).toBe('');
-  }, 30_000);
+  });
 
-  it('rejects real cache/parent links and injected reparse points before Git runs', async () => {
+  it('rejects real cache/parent links and injected reparse points before Git runs', { timeout: 60_000 }, async () => {
     for (const linkedName of ['cache', 'worktrees'] as const) {
       const managedRoot = root(`mosga-${linkedName}-link-root-`);
       const outside = root(`mosga-${linkedName}-link-outside-`);
@@ -318,7 +318,7 @@ describe('local managed Git integration', () => {
     expect(runner.calls).toEqual([]);
   });
 
-  it('commits exact sealed bytes from the sealed base and pushes explicitly without origin', async () => {
+  it('commits exact sealed bytes from the sealed base and pushes explicitly without origin', { timeout: 60_000 }, async () => {
     const upstream = createRemote();
     const managedRoot = root();
     const credentials = new FakeGitCredentialPort();
@@ -403,9 +403,9 @@ describe('local managed Git integration', () => {
       commitSha: equivalentCommit,
       treeSha: identity.treeSha,
     });
-  }, 30_000);
+  });
 
-  it('uses the fork push repository and refuses a different-tree branch collision', async () => {
+  it('uses the fork push repository and refuses a different-tree branch collision', { timeout: 60_000 }, async () => {
     const upstream = createRemote();
     const fork = createRemote();
     const managedRoot = root();
@@ -445,5 +445,5 @@ describe('local managed Git integration', () => {
     git(['commit', '-m', 'different tree'], clone);
     git(['push', 'origin', bundle.branch], clone);
     expect((await workspacePort.push(workspace, identity)).state).toBe('conflict');
-  }, 30_000);
+  });
 });

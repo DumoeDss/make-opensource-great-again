@@ -14,6 +14,7 @@
 // REAL-PROCESS-TREE TEST DISCIPLINE: each test records every PID and, in a
 // `finally`, force-kills every recorded PID on EVERY path (pass OR fail). The
 // temp dir is removed only after the descendant is confirmed dead.
+import { existsSync } from 'node:fs';
 import { chmod, copyFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -92,13 +93,23 @@ async function writeProbeScript(
     [
       "const { spawn } = require('node:child_process');",
       "const { writeFileSync } = require('node:fs');",
-      'setTimeout(() => {',
-      '  const child = spawn(process.execPath,',
-      "    ['-e', 'setInterval(() => {}, 1000)'],",
-      "    { stdio: 'ignore', detached: true });",
-      '  child.unref();',
-      "  writeFileSync(process.argv[2], JSON.stringify([process.pid, child.pid]));",
-      '}, 50);',
+      // Spawn the descendant with bounded retry: under the full repo suite's
+      // parallel load the OS can transiently refuse process creation
+      // (EMFILE/ENOMEM/EPERM). Without retry, the unhandled throw crashes the
+      // probe before the supervisor's abort/timeout can fire, surfacing as
+      // cli-probe-failed instead of the expected cancelled/timed-out code.
+      'function spawnDescendant(attempts) {',
+      '  try {',
+      '    const child = spawn(process.execPath,',
+      "      ['-e', 'setInterval(() => {}, 1000)'],",
+      "      { stdio: 'ignore', detached: true });",
+      '    child.unref();',
+      "    writeFileSync(process.argv[2], JSON.stringify([process.pid, child.pid]));",
+      '  } catch (e) {',
+      '    if (attempts > 0) setTimeout(() => spawnDescendant(attempts - 1), 100);',
+      '  }',
+      '}',
+      'setTimeout(() => spawnDescendant(5), 50);',
       "setInterval(() => {}, 1000);",
       overflowLine,
       '',
@@ -137,7 +148,7 @@ afterAll(async () => {
 });
 
 describe('capability probe tree termination (SPEC-M1)', () => {
-  it('probe timeout terminates a real hanging descendant via the shared tree boundary', { retry: 2 }, async () => {
+  it('probe timeout terminates a real hanging descendant via the shared tree boundary', { retry: 2, timeout: 60_000 }, async () => {
     const owned = await nodeOwnedFixture();
     const dir = await directory();
     const scriptPath = path.join(dir, 'hang-probe.cjs');
@@ -186,7 +197,7 @@ describe('capability probe tree termination (SPEC-M1)', () => {
     }
   });
 
-  it('probe output-overflow terminates a real hanging descendant via the shared tree boundary', { retry: 2 }, async () => {
+  it('probe output-overflow terminates a real hanging descendant via the shared tree boundary', { retry: 2, timeout: 60_000 }, async () => {
     const owned = await nodeOwnedFixture();
     const dir = await directory();
     const scriptPath = path.join(dir, 'overflow-probe.cjs');
@@ -230,7 +241,7 @@ describe('capability probe tree termination (SPEC-M1)', () => {
     }
   });
 
-  it('probe abort terminates a real hanging descendant via the shared tree boundary', { retry: 2 }, async () => {
+  it('probe abort terminates a real hanging descendant via the shared tree boundary', { retry: 2, timeout: 60_000 }, async () => {
     const owned = await nodeOwnedFixture();
     const dir = await directory();
     const scriptPath = path.join(dir, 'abort-probe.cjs');
@@ -238,14 +249,27 @@ describe('capability probe tree termination (SPEC-M1)', () => {
     await writeProbeScript(scriptPath, pidFile, 'hang');
 
     const abort = new AbortController();
-    // Abort after the descendant has been spawned. The delay must account for
-    // verifyOwnedExecutable (~200ms re-hash of the owned node copy in isolation,
-    // far longer under full-suite parallel contention) BEFORE the probe child
-    // is spawned, plus Node startup (~30ms) and the script's 50ms descendant-
-    // spawn delay. 1.5s gives comfortable margin while keeping a wide gap to
-    // the default 5s probeTimeoutMs so the abort reliably wins the race.
-    const timer = setTimeout(() => abort.abort(), 1_500);
-    timer.unref();
+    // Abort AFTER the probe process has started and spawned its descendant
+    // (pid file exists). A fixed delay races against probe startup under heavy
+    // parallel load — verifyOwnedExecutable re-hashes the ~75MB owned node copy
+    // before the probe child is even spawned, and under full-suite contention
+    // this can take several seconds. Polling for the pid file ensures the abort
+    // fires only after the descendant exists, regardless of how long startup
+    // took. Safety timeout at 4.5s (still wins over the 5s default probeTimeoutMs)
+    // handles the case where the probe never starts.
+    const abortInterval = setInterval(() => {
+      if (existsSync(pidFile)) {
+        clearInterval(abortInterval);
+        clearTimeout(safetyTimer);
+        abort.abort();
+      }
+    }, 50);
+    abortInterval.unref();
+    const safetyTimer = setTimeout(() => {
+      clearInterval(abortInterval);
+      abort.abort();
+    }, 4_500);
+    safetyTimer.unref();
 
     const config = normalizeRuntimeOptions({});
     let pids: number[] = [];
@@ -267,7 +291,7 @@ describe('capability probe tree termination (SPEC-M1)', () => {
       const descendantPid = pids[1]!;
       // Widened from 3s/25ms: under the full repo suite's parallel load the OS
       // can lag well beyond 3s between TerminateJobObject and actual process-
-      // table reap. 15s holds with wide margin; the 30s testTimeout and the
+      // table reap. 15s holds with wide margin; the 60s testTimeout and the
       // finally-PID-cleanup keep the test bounded.
       await vi.waitFor(
         () => {
@@ -276,7 +300,8 @@ describe('capability probe tree termination (SPEC-M1)', () => {
         { timeout: 15_000, interval: 50 },
       );
     } finally {
-      clearTimeout(timer);
+      clearInterval(abortInterval);
+      clearTimeout(safetyTimer);
       for (const pid of pids) {
         forceKill(pid);
       }

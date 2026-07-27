@@ -39,6 +39,34 @@ import { sealedBundle } from './fixtures.js';
 const temporaryDirectories: string[] = [];
 const fixtureDirectories: string[] = [];
 const terminalInput = 'terminal-e2e-canary';
+
+/**
+ * Windows temp-dir cleanup that tolerates the OS-level handle-release lag after
+ * a child process exits (EBUSY/EPERM/ENOTEMPTY from antivirus, search indexer,
+ * or the kernel itself releasing the executable image). Under the full repo's
+ * parallel load this lag is amplified; a plain rm fails ~50% of the time.
+ * Retries with a short back-off for a bounded grace window, then rethrows.
+ */
+async function rmWithRetry(target: string): Promise<void> {
+  const maxAttempts = 40;
+  const delayMs = 50;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      await rm(target, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (
+        attempt < maxAttempts - 1 &&
+        (code === 'EBUSY' || code === 'EPERM' || code === 'ENOTEMPTY')
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+      throw error;
+    }
+  }
+}
 const routeToken = 'opaque-e2e-route-token';
 const cliModel = 'target-cli-model';
 
@@ -67,14 +95,14 @@ async function nodeOwnedFixture(): Promise<OwnedExecutable> {
 afterEach(async () => {
   delete process.env.PROVIDER_SECRET_E2E_CANARY;
   for (const directory of temporaryDirectories.splice(0)) {
-    await rm(directory, { recursive: true, force: true });
+    await rmWithRetry(directory);
   }
 });
 
 afterAll(async () => {
   cachedNodeOwned = null;
   for (const directory of fixtureDirectories) {
-    await rm(directory, { recursive: true, force: true }).catch(() => {});
+    await rmWithRetry(directory).catch(() => {});
   }
 });
 
@@ -211,6 +239,11 @@ async function fixtureRoot(): Promise<{
 describe('executable fake Claude/Codex contracts', () => {
   it.each(['claude-code', 'codex'] as const)(
     'executes the %s argv/stdin/env/layout contract through the real supervisor',
+    // 90s: under full-suite parallel load the verifyOwnedExecutable re-hash of
+    // the ~75MB owned node copy + fake-CLI Node startup + workspace cleanup
+    // chain can exceed 60s under extreme contention. Well within the 120s
+    // no-hang cap. The rmWithRetry in afterEach handles the handle-release lag.
+    { timeout: 90_000 },
     async (source) => {
       const { parent, skillRoot } = await fixtureRoot();
       const script = path.join(parent, `${source}-fake.cjs`);
@@ -341,6 +374,7 @@ describe('executable fake Claude/Codex contracts', () => {
 
   it.each(['claude-code', 'codex'] as const)(
     'launches no alternate %s invocation after executable fake-CLI refusal',
+    { timeout: 90_000 },
     async (source) => {
       const { parent, skillRoot } = await fixtureRoot();
       const script = path.join(parent, `${source}-refusal.cjs`);

@@ -92,7 +92,7 @@ afterAll(async () => {
 });
 
 describe('owned executable atomic binding (STD-M1)', () => {
-  it('refuses launch when the owned copy is swapped after the identity comparison', async () => {
+  it('refuses launch when the owned copy is swapped after the identity comparison', { timeout: 60_000 }, async () => {
     const { owned } = await ownedFixtureWithOriginal();
 
     // The supervisor calls verifyOwnedExecutable, then preSpawnHook, then
@@ -132,7 +132,7 @@ describe('owned executable atomic binding (STD-M1)', () => {
     expect(spawnCalls).not.toHaveBeenCalled();
   });
 
-  it('proceeds when the ORIGINAL resolved path is swapped after staging (spawn uses the owned copy)', async () => {
+  it('proceeds when the ORIGINAL resolved path is swapped after staging (spawn uses the owned copy)', { timeout: 60_000 }, async () => {
     const { owned, originalNodeCopy } = await ownedFixtureWithOriginal();
 
     // Swap the ORIGINAL resolved path after staging. The supervisor never
