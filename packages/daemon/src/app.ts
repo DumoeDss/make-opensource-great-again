@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import os from 'node:os';
+import path from 'node:path';
 
 import {
   ALLOWED_PRESET_IDS,
@@ -27,7 +28,6 @@ import {
   type Transport,
   type UserTarget,
 } from '@mosga/direct-submit';
-import { type AsyncCommandRunner, defaultAsyncRunner } from '@mosga/publisher';
 import { getAdapter, listAdapters } from '@mosga/session-readers';
 import {
   type CompiledRuleset,
@@ -52,7 +52,29 @@ import {
   ProviderConflictError,
   type ProviderStore,
 } from './providerStore.js';
-import { createPublishRoutes, validateDataRepoPath } from './publish.js';
+import { createPublishRoutes } from './publish.js';
+import {
+  FilePublicationJournalStore,
+  FilePublicationLock,
+  FilePublicationReceiptStore,
+  FilePublicationTargetStore,
+  GhGitCredentialPort,
+  GhGitHubPort,
+  GitHubPublicationService,
+  InMemorySealedPreviewStore,
+  ManagedGitWorkspace,
+  PublicationSubmitStateMachine,
+  SpawnProcessRunner,
+  SubmitPreflight,
+  type GitHubPort,
+  type GitHubPublication,
+  type GitWorkspacePort,
+  type PublicationJournalStore,
+  type PublicationLock,
+  type PublicationReceiptStore,
+  type PublicationTargetStore,
+  type SealedPreviewStore,
+} from './publication/index.js';
 import { ReviewStore } from './reviews.js';
 import { isUiPath, resolveUiDist, serveUi, uiNotBuiltMessage } from './staticUi.js';
 import { annotateProject } from './whitelist.js';
@@ -115,24 +137,21 @@ export interface AppOptions {
   providerKeysPath?: string;
   /** Path to the master keyfile encrypting the key store. Default `~/.mosga/master.key`. */
   masterKeyFilePath?: string;
-  /**
-   * Path to the operator's LOCAL data-repo clone that 出口① publishes into. Same
-   * trust model as `providerKeyConfigPath`: server-side at startup ONLY, NEVER
-   * writable via any HTTP route, and never echoed back over HTTP (preflight
-   * reports a boolean, not the literal path). A bad path is a startup warning to
-   * the operator console, not an HTTP error.
-   */
-  dataRepoPath?: string;
-  /**
-   * Async git/gh command runner for the publish routes. Injected by tests (a fake
-   * that touches no real git/gh/network, like `submitTransport`); defaults to the
-   * real `spawn`-based runner so subprocesses never block the daemon event loop.
-   */
-  publishRunner?: AsyncCommandRunner;
+  publication?: GitHubPublication;
+  /** Internal/test-only; no CLI or HTTP surface exposes this managed root. */
+  publicationRoot?: string;
+  publicationGitHub?: GitHubPort;
+  publicationTargetStore?: PublicationTargetStore;
+  publicationPreviews?: SealedPreviewStore;
+  publicationJournals?: PublicationJournalStore;
+  publicationReceipts?: PublicationReceiptStore;
+  publicationLock?: PublicationLock;
+  publicationWorkspace?: GitWorkspacePort;
 }
 
 export interface App {
   store: ReviewStore;
+  publication: GitHubPublication;
   requestListener: (req: IncomingMessage, res: ServerResponse) => void;
 }
 
@@ -212,11 +231,6 @@ export function createApp(options: AppOptions = {}): App {
   // operator's console, not to any HTTP client.
   const customRules = loadTrustedCustomRules(options.customRulesPath);
 
-  // A bad --data-repo path is a startup warning to the operator, never an HTTP
-  // error (preflight then reports dataRepoConfigured:false). Same discipline as
-  // loadTrustedCustomRules — no file bytes/paths ever leak into a response.
-  validateDataRepoPath(options.dataRepoPath);
-
   // The compiled ruleset is deterministic; compile it once and reuse.
   let defaultRuleset: CompiledRuleset | undefined = options.ruleset;
   const getDefaultRuleset = (): CompiledRuleset => {
@@ -225,6 +239,61 @@ export function createApp(options: AppOptions = {}): App {
     }
     return defaultRuleset;
   };
+
+  const publicationRoot =
+    options.publicationRoot ?? path.join(homeDir, '.mosga', 'publication');
+  const publication = options.publication ?? (() => {
+    const processRunner = new SpawnProcessRunner();
+    const targetStore =
+      options.publicationTargetStore ??
+      new FilePublicationTargetStore(path.join(publicationRoot, 'target.json'));
+    const previews =
+      options.publicationPreviews ?? new InMemorySealedPreviewStore();
+    const github =
+      options.publicationGitHub ?? new GhGitHubPort(processRunner);
+    const journals =
+      options.publicationJournals ??
+      new FilePublicationJournalStore(path.join(publicationRoot, 'journals'));
+    const receipts =
+      options.publicationReceipts ??
+      new FilePublicationReceiptStore(path.join(publicationRoot, 'receipts'));
+    const lock =
+      options.publicationLock ??
+      new FilePublicationLock(path.join(publicationRoot, 'runtime', 'publish.lock'));
+    const workspace =
+      options.publicationWorkspace ??
+      new ManagedGitWorkspace(
+        processRunner,
+        new GhGitCredentialPort(processRunner),
+      );
+    const preflight = new SubmitPreflight({
+      receipts,
+      previews,
+      targets: targetStore,
+      reviews: store,
+      github,
+      currentRuleset: getDefaultRuleset,
+    });
+    const submit = new PublicationSubmitStateMachine({
+      preflight,
+      journals,
+      receipts,
+      lock,
+      previews,
+      workspace,
+      github,
+      managedRoot: publicationRoot,
+    });
+    return new GitHubPublicationService({
+      targetStore,
+      previews,
+      github,
+      reviews: store,
+      ruleset: getDefaultRuleset(),
+      compilerOptions: { generatedAt: options.now },
+      submit: (input) => submit.submit(input),
+    });
+  })();
 
   const routes: Route[] = [
     {
@@ -674,14 +743,8 @@ export function createApp(options: AppOptions = {}): App {
       },
     },
 
-    // ---- 出口① publish (plan/stage/submit + preflight) --------------------
-    ...createPublishRoutes({
-      store,
-      dataRepoPath: options.dataRepoPath,
-      runner: options.publishRunner ?? defaultAsyncRunner,
-      getRuleset: getDefaultRuleset,
-      now: options.now,
-    }),
+    // ---- canonical GitHub publication target / preview / submit ------------
+    ...createPublishRoutes(publication),
   ];
 
   const router = createRouter(routes);
@@ -698,6 +761,47 @@ export function createApp(options: AppOptions = {}): App {
     if (!isLoopbackHost(req.headers.host)) {
       sendJson(res, 403, { error: 'forbidden host' });
       return;
+    }
+
+    if (isMutatingMethod(req.method)) {
+      const contentType = req.headers['content-type'];
+      if (
+        typeof contentType !== 'string' ||
+        !/^application\/json(?:\s*;\s*charset=[^;]+)?\s*$/i.test(contentType)
+      ) {
+        sendJson(res, 415, {
+          error: 'application/json is required for mutating requests',
+          code: 'UNSUPPORTED_MEDIA_TYPE',
+        });
+        return;
+      }
+      const fetchSite = req.headers['sec-fetch-site'];
+      if (
+        typeof fetchSite === 'string' &&
+        fetchSite.toLowerCase() === 'cross-site'
+      ) {
+        sendJson(res, 403, {
+          error: 'cross-site request forbidden',
+          code: 'FORBIDDEN_ORIGIN',
+        });
+        return;
+      }
+      const origin = req.headers.origin;
+      const expectedOrigin = req.headers.host
+        ? `http://${req.headers.host}`
+        : undefined;
+      if (
+        origin !== undefined &&
+        (typeof origin !== 'string' ||
+          expectedOrigin === undefined ||
+          origin !== expectedOrigin)
+      ) {
+        sendJson(res, 403, {
+          error: 'origin forbidden',
+          code: 'FORBIDDEN_ORIGIN',
+        });
+        return;
+      }
     }
 
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
@@ -736,12 +840,19 @@ export function createApp(options: AppOptions = {}): App {
     try {
       const result = await matched.route.handler({ params: matched.params, url, body, req, res });
       if (!res.writableEnded) sendJson(res, result.status, result.json);
-    } catch (err) {
-      sendJson(res, 500, { error: (err as Error).message });
+    } catch {
+      sendJson(res, 500, {
+        error: 'internal server error',
+        code: 'INTERNAL_ERROR',
+      });
     }
   }
 
-  return { store, requestListener };
+  return { store, publication, requestListener };
+}
+
+function isMutatingMethod(method: string | undefined): boolean {
+  return method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
 }
 
 function notFound(message: string): HandlerResult {
@@ -753,18 +864,33 @@ function badRequest(message: string): HandlerResult {
 }
 
 /** Hostnames the loopback API accepts (DNS-rebinding guard). */
-const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost']);
 
 /** True when a request's `Host` header names the loopback interface only. */
 export function isLoopbackHost(hostHeader: string | undefined): boolean {
-  // An absent Host is only legal in HTTP/1.0; treat it as loopback-safe since
-  // the socket is already 127.0.0.1-bound and no attacker origin is asserted.
-  if (!hostHeader) return true;
-  // Strip the port. IPv6 literals are bracketed (`[::1]:8899`).
-  const hostname = hostHeader.startsWith('[')
-    ? hostHeader.slice(0, hostHeader.indexOf(']') + 1)
-    : hostHeader.split(':')[0];
-  return LOOPBACK_HOSTNAMES.has(hostname.toLowerCase());
+  if (
+    !hostHeader ||
+    hostHeader.length > 255 ||
+    /[\u0000-\u0020\u007f]/.test(hostHeader)
+  ) {
+    return false;
+  }
+  const ipv6 = /^\[([^\]]+)\](?::([0-9]{1,5}))?$/.exec(hostHeader);
+  if (ipv6) {
+    return ipv6[1].toLowerCase() === '::1' && validHostPort(ipv6[2]);
+  }
+  const host = /^([^:]+)(?::([0-9]{1,5}))?$/.exec(hostHeader);
+  return (
+    host !== null &&
+    LOOPBACK_HOSTNAMES.has(host[1].toLowerCase()) &&
+    validHostPort(host[2])
+  );
+}
+
+function validHostPort(value: string | undefined): boolean {
+  if (value === undefined) return true;
+  const port = Number(value);
+  return Number.isSafeInteger(port) && port >= 1 && port <= 65_535;
 }
 
 /**

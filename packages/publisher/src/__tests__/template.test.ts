@@ -32,10 +32,40 @@ describe('community data-repo template scaffold', () => {
     expect(wf.includes('\t')).toBe(false);
   });
 
-  it('pins @mosga/sanitizer + @mosga/publisher to an EXACT version (no ^/~)', () => {
+  it('ships locked, self-contained snapshots of the coordinated @mosga engine packages', () => {
     const pkg = JSON.parse(read('package.json')) as { dependencies: Record<string, string> };
-    expect(pkg.dependencies['@mosga/sanitizer']).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(pkg.dependencies['@mosga/publisher']).toMatch(/^\d+\.\d+\.\d+$/);
+    const lock = JSON.parse(read('package-lock.json')) as {
+      lockfileVersion: number;
+      packages: Record<string, { version?: string; resolved?: string; integrity?: string }>;
+    };
+    const packages = ['contracts', 'session-readers', 'sanitizer', 'publisher'];
+
+    expect(lock.lockfileVersion).toBe(3);
+    for (const name of packages) {
+      const tarball = `vendor/mosga-${name}-0.1.0.tgz`;
+      const dependencyName = `@mosga/${name}`;
+      const lockedPackage = lock.packages[`node_modules/${dependencyName}`];
+
+      expect(pkg.dependencies[dependencyName]).toBe(`file:${tarball}`);
+      expect(existsSync(TEMPLATE + tarball)).toBe(true);
+      expect(lockedPackage).toMatchObject({
+        version: '0.1.0',
+        resolved: `file:${tarball}`,
+      });
+      expect(lockedPackage.integrity).toMatch(/^sha512-/);
+    }
+  });
+
+  it('scans every vendored archive for real Windows users and private workspace roots', () => {
+    const pkg = JSON.parse(read('package.json')) as { scripts: Record<string, string> };
+    const scanner = read('scripts/validate-vendor.mjs');
+
+    expect(pkg.scripts['check:compat']).toContain('validate:vendor');
+    expect(scanner).toContain('gunzipSync');
+    expect(scanner).toContain('WINDOWS_USERS_ROOT');
+    expect(scanner).toContain('KNOWN_PRIVATE_WORKSPACE');
+    expect(scanner).not.toContain('ExampleUser');
+    expect(scanner).not.toContain('Sayo');
   });
 
   it('canary fixtures are obviously-fake, valid records that the scan logic catches', () => {

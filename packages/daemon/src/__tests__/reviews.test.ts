@@ -84,7 +84,10 @@ describe('review lifecycle + scan', () => {
       }
 
       const exported = (await (
-        await fetch(`${base}/api/reviews/${reviewId}/export`, { method: 'POST' })
+        await fetch(`${base}/api/reviews/${reviewId}/export`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+        })
       ).json()) as { session: { meta: { contributorAlias: string } } };
       expect(exported.session.meta.contributorAlias).toBe(expectedAlias);
     });

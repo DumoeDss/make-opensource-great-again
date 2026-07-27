@@ -16,8 +16,8 @@
  * is replaced with `-`. Consecutive `-`s are NOT collapsed and leading/trailing
  * `-`s are NOT stripped.
  *
- * Example: `C:\Users\Sayo\AppData\Roaming\@waifuoid\elftia\clawia`
- *       → `C--Users-Sayo-AppData-Roaming--waifuoid-elftia-clawia`
+ * Example: `%USERPROFILE%\AppData\Roaming\@waifuoid\elftia\clawia`
+ *       → `-USERPROFILE--AppData-Roaming--waifuoid-elftia-clawia`
  */
 export function encodeProjectPath(projectPath: string): string {
   return projectPath.replace(/[^A-Za-z0-9]/g, '-');

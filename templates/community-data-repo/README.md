@@ -1,73 +1,85 @@
 # mosga community dataset (scaffold)
 
-> This is the **template** the initiator instantiates as the real community data
-> repository. It ships the CI verification defense, the canary self-test, and an
-> HuggingFace sync stub — not a live dataset.
+This template is the canonical public GitHub repository that receives reviewed
+mosga contributions. It includes the compatibility manifest, pinned CI
+verification, canary self-test, and a Hugging Face sync stub; it is not a live
+dataset.
 
-This repo collects **sanitized** AI coding-session records contributed by the
-community. Every record was produced locally by [`@mosga/publisher`](../../packages/publisher),
-which runs a **mandatory local pre-check** — re-scanning the exact bytes with the
-shared `@mosga/sanitizer` ruleset and hard-refusing on any surviving secret —
-before a PR is ever opened. This repo's CI then **re-scans with a byte-identical,
-pinned engine** as an independent verification layer.
+Every record is compiled locally from a reviewed, gate-unlocked session. The
+publisher scans the exact record and provenance bytes before the daemon may
+write them. This repository then validates the target contract and re-scans the
+same committed bytes with pinned engine versions before merge.
 
-## How a record gets here
+## Canonical contribution flow
 
+1. The operator configures this public repository in mosga as its canonical
+   GitHub `owner/repo` publication target.
+2. Mosga resolves the repository, exact default-branch commit, compatibility
+   manifest, authenticated actor, and direct-or-fork push route.
+3. The operator previews one or more reviewed sessions. Preview is read-only
+   and reports whether confirmed submit will create a fork.
+4. Explicit confirmed submit writes only the sealed bytes in a daemon-managed
+   private workspace, pushes the contribution branch, and opens a pull request
+   against this canonical upstream.
+5. CI validates `.mosga-dataset.json`, proves the canary gate is alive, checks
+   engine parity from provenance, and scans every changed record.
+
+The contribution branch may live in the upstream repository or in the
+authenticated actor's verified fork, but the pull request always targets this
+canonical upstream and its sealed base branch.
+
+Only contribute your own data. A pull request is public when created and Git
+history is durable, which is why preview confirmation, the final exact-byte
+pre-check, and independent CI verification are mandatory.
+
+## Compatibility manifest
+
+`.mosga-dataset.json` declares:
+
+- `kind: "mosga-community-data"`
+- publication `contractVersion: 1`
+- the accepted record schema versions
+- the concrete dataset license (`CC-BY-4.0` in this template)
+
+Run the standalone compatibility checks with:
+
+```bash
+npm run check:compat
 ```
-your Claude Code session
-  → read (@mosga/session-readers)
-  → scan (@mosga/sanitizer, three layers)
-  → human review + gate (mosga daemon UI)
-  → export + MANDATORY local pre-check (@mosga/publisher)   ← refuses on any leak
-  → PR to this repo
-  → CI re-scan with the PINNED engine + canary self-test    ← this repo
-  → merge → periodic HF sync (operator)
-```
 
-## Contributing
+CI runs the same validation whenever the manifest, scripts, tests, records, or
+package pins change. Missing, malformed, unsupported, duplicate-schema, empty,
+and placeholder-license manifests fail without contacting GitHub.
 
-1. Review one of your own sessions to a stamped, gate-passed `SanitizedSession`.
-2. Run the publisher; it exports the record, runs the pre-check, and prepares a PR:
-   ```
-   mosga-publish prepare ./my-session.json --repo /path/to/this/clone
-   ```
-   If `gh` is installed it can open the PR; otherwise it prints the exact
-   `git`/`gh` commands to run manually.
-3. Open the PR. CI re-scans your record. A blocking finding fails the check and
-   the record cannot merge — replace/delete the value or get the rule allowlisted
-   upstream (which strengthens the shared ruleset for everyone). There is **no
-   "allow through" escape hatch** at publication: the published bytes must pass
-   the shared ruleset cleanly.
+## Pinned-engine invariant
 
-Only contribute **your own** data. A PR is public the instant it is created and
-its git history is permanent — that is exactly why the pre-check and CI re-scan
-exist.
+This development template vendors exact `@mosga/*@0.1.0` package tarballs and
+its own `package-lock.json`. A generated repository can therefore run `npm ci`
+and the complete scan workflow without a parent monorepo or unpublished npm
+packages. The four tarballs and lockfile are one coordinated engine release
+unit and must match contribution provenance. Ruleset identity alone is
+insufficient because runtime/engine differences can change scan behavior.
+Version drift is a visible CI failure. Compatibility checks also decompress
+every archive and reject every bounded drive-rooted `X:\Users\` occurrence,
+every NUL-bearing entry, and known private workspace roots. Documentation
+examples must use environment-variable forms such as `%USERPROFILE%` instead
+of a concrete profile path.
 
-## The pinned-engine invariant (why versions are exact)
-
-`package.json` pins `@mosga/sanitizer` and `@mosga/publisher` to an **exact**
-version (no `^`/`~`). That version must equal the `sanitizerPackageVersion` in
-contributors' provenance stamps. A `rulesetVersion` alone is insufficient: a
-regex can compile differently across engine/runtime versions, so CI pins the
-whole **engine**, guaranteeing its re-scan is byte-identical to the contributor's
-local pre-check. A mismatch is a visible CI failure, never a silent divergence.
-
-Community-wide Layer-2 custom rules may be committed as `sanitizer.custom-rules.json`
-(additive — they only ever catch more). Contributor-private custom rules stay on
-the contributor's machine.
+Community-wide additive rules may be committed as
+`sanitizer.custom-rules.json`. Contributor-private rules stay on the
+contributor's machine.
 
 ## Layout
 
-- `data/<schemaVersion>/<contributorAlias>/<sessionId>.jsonl` — one JSONL record
-  per session (see `data/README.md`).
-- `.github/workflows/scan.yml` — the PR re-scan + canary self-test.
-- `tests/canary/` — obviously-fake canary records the CI **must** catch.
-- `scripts/` — `scan-changed.mjs`, `scan-canary.mjs`, `hf-sync.mjs` (stub).
-- `LICENSE-DATA` — dataset license (placeholder; see the file).
-- [`INCIDENT-RESPONSE.md`](../../INCIDENT-RESPONSE.md) — the post-publication leak playbook.
+- `vendor/` — exact installable development snapshots for the pinned engine.
+- `package-lock.json` — standalone reproducible CI dependency graph.
 
-## Data license
+- `.mosga-dataset.json` — strict publication compatibility contract.
+- `data/<schemaVersion>/<contributorAlias>/<sessionId>.jsonl` — records.
+- `data/.../*.provenance.json` — exact engine and contribution provenance.
+- `.github/workflows/scan.yml` — manifest, canary, parity, and record checks.
+- `tests/canary/` — obviously fake values the CI gate must catch.
+- `scripts/` — manifest validation, record scans, canaries, and HF sync stub.
+- `LICENSE-DATA` — concrete CC-BY-4.0 dataset declaration.
 
-See `LICENSE-DATA`. The dataset license is a pre-launch decision (Open Question 2:
-CC-BY-4.0 / ODC-BY / Apache-data 待定) and is **separate** from this scaffold's
-MIT code license.
+For a post-publication issue, follow the repository incident-response process.

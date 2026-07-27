@@ -1,64 +1,95 @@
 # @mosga/daemon
 
-Local loopback HTTP API that turns a scanned session into a review-and-unlock
-workflow, and serves the `@mosga/ui` review interface same-origin. This is slice
-3 of mosga v0.1; slice 4 (`@mosga/publisher`) consumes this daemon's export
-endpoint output (the stamped `SanitizedSession`).
-
-## What it does
-
-- Wraps `@mosga/session-readers` (enumerate sources / projects / sessions) and
-  `@mosga/sanitizer` (compile ruleset, scan, disposition, apply) behind a REST
-  API.
-- Holds a **stateful review** in memory keyed by `reviewId`: `{ session, report,
-  mapper }`. The `PseudonymMapper` instance is retained so that at export
-  `primaryContributorAlias()` and placeholder assignment stay consistent — the
-  mapper's internal counters cannot round-trip through the browser.
-- Enforces the confirmation **gate**: the export endpoint returns a stamped
-  `SanitizedSession` (`meta.sanitized:true`) only when `gate.unlocked`, otherwise
-  HTTP 409. There is no code path that emits a stamped session while locked.
-- Serves the built UI at `/ui` from the same origin as the API (zero CORS).
+Local loopback HTTP API for session review, sanitization, direct model submit,
+and canonical GitHub dataset publication. It also serves `@mosga/ui` from the
+same origin.
 
 ## Running
 
+```bash
+mosga ui
+mosga ui --port 8899
+MOSGA_PORT=8899 mosga ui
 ```
-mosga ui            # start the daemon and open the browser at /ui
-mosga ui --port N   # use port N instead of 8899
-MOSGA_PORT=N mosga ui
+
+The daemon derives publication storage beneath the local user application
+directory. No CLI flag or HTTP field accepts a clone, workspace, remote, branch,
+URL, command, or credential for GitHub publication.
+
+GitHub publication v1 supports public repositories on `github.com` and uses the
+locally installed GitHub CLI authentication. Sign in before publishing:
+
+```bash
+gh auth login
 ```
 
-Default port is **8899** (deliberately different from omnicross's 8766).
+## Canonical GitHub publication
 
-## Threat model (v0.1) — READ THIS
+Configure exactly one canonical upstream through the settings UI or:
 
-**The daemon binds `127.0.0.1` only and never a non-loopback interface.** There
-is **no authentication** in v0.1. The threat model is a **single local user** on
-the machine: any process able to reach loopback (any local process, any local
-user) can call the API and read the session currently under review. This is
-acceptable for a local developer tool and is called out explicitly here rather
-than hidden.
+```http
+PUT /api/publish/target
+Content-Type: application/json
 
-**DNS-rebinding guard.** Because the API has no auth, a website you visit could
-point a hostname it controls at `127.0.0.1` and try to drive the API from the
-browser. The daemon rejects any request whose `Host` header is not a loopback
-name (`127.0.0.1` / `localhost` / `::1`) with HTTP 403, closing that vector.
-Custom rules are loaded only from a trusted server-configured path at startup,
-never from a request body — the API performs no client-directed file reads.
+{"repository":"owner/repo"}
+```
 
-Out of scope for v0.1 (do not assume these protect you):
+The target repository must be public and contain a compatible
+`.mosga-dataset.json` at its current default-branch commit. `GET /api/publish`
+returns one typed state:
 
-- Multi-user / shared machines. If other users share this host, they can reach
-  the loopback API.
-- Remote access. The daemon is never exposed off-host by design.
-- An auth token / origin check is a v0.2 option, not present here.
+- `unconfigured`
+- `login_required`
+- `fork_confirmation_required`
+- `ready`
+- `blocked`
 
-Two further properties worth knowing:
+Readiness is resolved from GitHub repository identity, visibility, manifest,
+default branch/head, actor permission, and verified fork relation. It never
+reports local paths, credentials, commands, or raw external output.
 
-- **In-memory review state is lost on daemon restart.** Dispositions are not
-  persisted. A re-scan is deterministic (`Finding.id` is stable), so the review
-  can be redone without corruption — but it must be redone.
-- **The git-remote "recommended" flag is a heuristic, not a security control.**
-  It biases the project picker toward projects whose `cwd` has a git remote on a
-  recognized public host (github.com, gitlab.com, …). A private mirror hosted on
-  a public host, or an unpushed repo, is misclassified. The real defenses are the
-  scan and the human gate; "show all projects" is always available.
+Publication is a two-step confirmation flow:
+
+1. `POST /api/publish/preview` accepts `{ "reviewIds": [...] }` for both one
+   review and a batch. It rechecks review gates, compiles one deterministic
+   contribution bundle, binds it to an exact target/base snapshot, and returns
+   file path/byte/hash summaries. Preview is memory-only and performs no
+   filesystem, Git, fork, push, or pull-request write.
+2. `POST /api/publish/submit` accepts only the preview reference, target
+   revision, content digest, and literal `confirmPublic: true`. It revalidates
+   current reviews, target, manifest, engine pins, bundle commitments, and exact
+   bytes before the first write.
+
+Confirmed submit uses a daemon-owned managed workspace. It writes the sealed
+bytes, commits from the sealed base, pushes through an explicit upstream or
+verified fork route, and creates/adopts the exact upstream pull request. A
+durable monotonic journal and immutable receipt make retry/recovery converge on
+the same branch and PR. The receipt contains public audit facts only.
+
+`DELETE /api/publish/target` clears the active target and invalidates
+unsubmitted previews. Target revisions never reset or get reused.
+
+If GitHub publication is unavailable, the review export endpoint remains the
+fallback for obtaining the sanitized, gate-unlocked file only. The daemon does
+not emit shell commands or expose its managed workspace for manual takeover.
+
+## Review and mutation security
+
+The daemon binds `127.0.0.1` only and has no authentication in v0.x. It is
+designed for one local user and must not be exposed remotely.
+
+Every request must use a loopback `Host`. Every `POST`, `PUT`, `PATCH`, and
+`DELETE` request additionally requires:
+
+- `Content-Type: application/json` (an optional charset is accepted),
+- no `Sec-Fetch-Site: cross-site`, and
+- when `Origin` is present, exact equality with the current loopback daemon
+  origin.
+
+The server sends no CORS allow headers. Known failures use stable curated error
+codes/messages. Unexpected exceptions, Git/GitHub output, commands, tokens, and
+local absolute paths are never serialized into HTTP responses.
+
+Reviews and unconfirmed previews are in memory and are lost on daemon restart.
+Once confirmed submit begins, the private journal/receipt state supports crash
+recovery without persisting credentials.

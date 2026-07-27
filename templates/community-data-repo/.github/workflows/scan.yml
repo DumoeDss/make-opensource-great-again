@@ -9,10 +9,14 @@ on:
   pull_request:
     paths:
       - 'data/**'
+      - '.mosga-dataset.json'
+      - 'LICENSE-DATA'
+      - 'README.md'
       - 'tests/canary/**'
       - 'scripts/**'
       - 'package.json'
       - 'package-lock.json'
+      - 'vendor/**'
 
 # Least privilege: the scan only needs to read the code.
 permissions:
@@ -32,11 +36,14 @@ jobs:
         with:
           node-version: '20'
 
-      # Installs @mosga/sanitizer + @mosga/publisher at the EXACT pinned version
-      # from package.json / package-lock.json — the same engine that produced the
-      # contributor's provenance stamp.
+      # Installs the coordinated, lockfile-pinned @mosga engine snapshots from
+      # vendor/ — the same engine release that produced the contributor's
+      # provenance stamp.
       - name: Install pinned engine
         run: npm ci
+
+      - name: Validate dataset compatibility manifest
+        run: npm run check:compat
 
       # Gate self-test: the fake canaries MUST be caught. A miss means the scan
       # is broken; fail before trusting any record verdict.
