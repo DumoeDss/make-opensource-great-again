@@ -23,11 +23,26 @@ import {
   scanSession,
 } from '@mosga/sanitizer';
 
+import type { ReplayReviewState, ReviewSourceRef } from './replayReview.js';
+
 export interface ReviewState {
   session: SanitizedSession;
   report: SanitizationReport;
   mapper: PseudonymMapper;
   rulesetWarnings: RulesetWarning[];
+  /**
+   * The source-session ref held at review creation so `/replay/prepare` can call
+   * `adapter.captureNativeSession(ref)` without re-deriving the enumeration.
+   * Absent on reviews created before this field was added (the prepare route
+   * fails closed with a stable error in that case).
+   */
+  source?: ReviewSourceRef;
+  /**
+   * The parallel replay review state (native-capture → draft → scan → seal).
+   * Produced by `/replay/prepare`; consumed by the replay disposition endpoints
+   * and `/replay/seal`. Distinct from the normalized `report`/`mapper` above.
+   */
+  replay?: ReplayReviewState;
 }
 
 /**
@@ -47,15 +62,20 @@ export class ReviewStore {
     this.maxReviews = Math.max(1, maxReviews);
   }
 
-  /** Scan a session and store the resulting review state; returns the id. */
+  /**
+   * Scan a session and store the resulting review state; returns the id. The
+   * optional `source` holds the source-session ref so `/replay/prepare` can call
+   * `adapter.captureNativeSession(ref)` later without re-deriving the enumeration.
+   */
   create(
     session: SanitizedSession,
     ruleset: CompiledRuleset,
     options: ScanOptions = {},
+    source?: ReviewSourceRef,
   ): { reviewId: string; state: ReviewState } {
     const { report, mapper, rulesetWarnings } = scanSession(session, ruleset, options);
     const reviewId = randomUUID();
-    const state: ReviewState = { session, report, mapper, rulesetWarnings };
+    const state: ReviewState = { session, report, mapper, rulesetWarnings, source };
     this.reviews.set(reviewId, state);
     this.evict();
     return { reviewId, state };
@@ -80,6 +100,51 @@ export class ReviewStore {
     const state = this.reviews.get(reviewId);
     if (state) {
       state.report = report;
+      this.touch(reviewId, state);
+    }
+  }
+
+  /**
+   * Store the replay review state produced by `/replay/prepare`. Holds the
+   * exact `PseudonymMapper` + `CompiledRuleset` returned/used by the scan so
+   * `/replay/seal` can pass the matching pair to `applyReplayDispositions`.
+   */
+  setReplay(reviewId: string, replay: ReplayReviewState): void {
+    const state = this.reviews.get(reviewId);
+    if (state) {
+      state.replay = replay;
+      this.touch(reviewId, state);
+    }
+  }
+
+  /** Get the replay review state (or undefined when no preparation has run). */
+  getReplay(reviewId: string): ReplayReviewState | undefined {
+    const state = this.reviews.get(reviewId);
+    if (state) {
+      this.touch(reviewId, state);
+      return state.replay;
+    }
+    return undefined;
+  }
+
+  /**
+   * Replace the held replay report after a disposition edit (pure transforms).
+   * Same last-write-wins discipline as `setReport`: concurrent disposition
+   * requests can only DROP an edit (the gate then stays MORE locked).
+   */
+  setReplayReport(reviewId: string, report: ReplayReviewState['report']): void {
+    const state = this.reviews.get(reviewId);
+    if (state?.replay) {
+      state.replay.report = report;
+      this.touch(reviewId, state);
+    }
+  }
+
+  /** Store the sealed bundle produced by `/replay/seal`. */
+  setSealedBundle(reviewId: string, bundle: ReplayReviewState['sealedBundle']): void {
+    const state = this.reviews.get(reviewId);
+    if (state?.replay) {
+      state.replay.sealedBundle = bundle;
       this.touch(reviewId, state);
     }
   }

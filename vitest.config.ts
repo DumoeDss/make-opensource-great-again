@@ -15,6 +15,9 @@ export default defineConfig({
       '@mosga/session-readers': src('session-readers'),
       '@mosga/sanitizer': src('sanitizer'),
       '@mosga/replay-bundle': src('replay-bundle'),
+      '@mosga/replay-runtime': src('replay-runtime'),
+      '@mosga/replay-proxy': src('replay-proxy'),
+      '@mosga/replay-submit': src('replay-submit'),
       '@mosga/direct-submit': src('direct-submit'),
       '@mosga/publisher': src('publisher'),
       // `@` → @mosga/ui's src, matching the ported omnicross primitives' `@/...`

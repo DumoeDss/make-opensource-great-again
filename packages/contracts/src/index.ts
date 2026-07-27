@@ -146,3 +146,22 @@ export {
   projectReplayBundleDraft,
   canonicalizeReplayReviewedDraft,
 } from './replayCanonical.js';
+
+export {
+  CliResumeApiFormatSchema,
+  type CliResumeApiFormat,
+  CliResumeConsentSchema,
+  type CliResumeConsent,
+  CliResumeOutcomeSchema,
+  type CliResumeOutcome,
+  CliResumeReceiptSchema,
+  type CliResumeReceipt,
+  CliResumeSubmitErrorCodeSchema,
+  type CliResumeSubmitErrorCode,
+  CliResumeSubmitStageSchema,
+  type CliResumeSubmitStage,
+  CliResumeCleanupStateSchema,
+  type CliResumeCleanupState,
+  CliResumeSubmitFailureSchema,
+  type CliResumeSubmitFailure,
+} from './cliResume.js';

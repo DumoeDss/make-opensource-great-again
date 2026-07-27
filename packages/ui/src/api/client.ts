@@ -3,6 +3,8 @@
  * call is a relative `/api/...` URL — no host, no CORS.
  */
 import type {
+  CliResumeConsent,
+  CliResumeReceipt,
   ContributionConsent,
   CreateReviewResponse,
   CustomProviderInput,
@@ -22,7 +24,12 @@ import type {
   PublishPreflight,
   PublishStageResult,
   PublishSubmitResult,
+  ReplayFindingDisposition,
   ReplayMode,
+  ReplayOpaqueDisposition,
+  ReplayPrepareResponse,
+  ReplayReportResponse,
+  ReplaySealResponse,
   ReportResponse,
   SanitizationReport,
   SessionRef,
@@ -74,6 +81,40 @@ export interface ApiClient {
     reviewId: string,
     body: { providerId: string; model: string; replayMode: ReplayMode; consent: ContributionConsent },
   ): Promise<{ ok: true; receipt: SubmissionReceipt } | { ok: false; status: number; error: string }>;
+  /** Cli-resume submit (出口② request-authenticity path). Sends the sealed bundle. */
+  submitCliResume(
+    reviewId: string,
+    body: { providerId: string; model: string; consent: CliResumeConsent; bundle: unknown },
+  ): Promise<{ ok: true; receipt: CliResumeReceipt } | { ok: false; status: number; error: string; code?: string }>;
+  /**
+   * Replay preparation: capture the native session, build a replay draft, scan
+   * it, and return the replay scan report for triage. The daemon holds the
+   * draft + mapper + ruleset server-side for the seal step.
+   */
+  prepareReplay(
+    reviewId: string,
+    target: { targetProviderId: string; targetModel: string },
+  ): Promise<ReplayPrepareResponse>;
+  /** Set a replay finding's disposition (pending / replace / delete / allow). */
+  setReplayFindingDisposition(
+    reviewId: string,
+    findingId: string,
+    disposition: ReplayFindingDisposition,
+  ): Promise<ReplayReportResponse>;
+  /** Set a replay opaque item's disposition (pending / keep / remove / replace). */
+  setReplayOpaqueDisposition(
+    reviewId: string,
+    itemId: string,
+    disposition: ReplayOpaqueDisposition,
+    replacement?: unknown,
+  ): Promise<ReplayReportResponse>;
+  /**
+   * Seal the reviewed replay draft → the sealed `ReplayBundle` the cli-resume
+   * submit consumes. Requires an unlocked replay gate.
+   */
+  sealReplay(
+    reviewId: string,
+  ): Promise<{ ok: true; data: ReplaySealResponse } | { ok: false; status: number; error: string; code?: string; gate?: SanitizationReport['gate'] }>;
   getPreflight(): Promise<PublishPreflight>;
   publishPlan(reviewId: string): Promise<PublishResult<{ plan: PublishPlan }>>;
   publishStage(reviewId: string): Promise<PublishResult<{ result: PublishStageResult }>>;
@@ -221,6 +262,45 @@ export const apiClient: ApiClient = {
     }
     const data = (await res.json()) as { receipt: SubmissionReceipt };
     return { ok: true, receipt: data.receipt };
+  },
+  async submitCliResume(reviewId, body) {
+    const res = await post(`/api/reviews/${encodeURIComponent(reviewId)}/submit`, body);
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+      return { ok: false, status: res.status, error: err.error ?? `request failed: ${res.status}`, code: err.code };
+    }
+    const data = (await res.json()) as { receipt: CliResumeReceipt };
+    return { ok: true, receipt: data.receipt };
+  },
+  async prepareReplay(reviewId, target) {
+    return json<ReplayPrepareResponse>(
+      await post(`/api/reviews/${encodeURIComponent(reviewId)}/replay/prepare`, target),
+    );
+  },
+  async setReplayFindingDisposition(reviewId, findingId, disposition) {
+    return json<ReplayReportResponse>(
+      await post(
+        `/api/reviews/${encodeURIComponent(reviewId)}/replay/findings/${encodeURIComponent(findingId)}/disposition`,
+        { disposition },
+      ),
+    );
+  },
+  async setReplayOpaqueDisposition(reviewId, itemId, disposition, replacement) {
+    return json<ReplayReportResponse>(
+      await post(
+        `/api/reviews/${encodeURIComponent(reviewId)}/replay/opaque/${encodeURIComponent(itemId)}/disposition`,
+        replacement !== undefined ? { disposition, replacement } : { disposition },
+      ),
+    );
+  },
+  async sealReplay(reviewId) {
+    const res = await post(`/api/reviews/${encodeURIComponent(reviewId)}/replay/seal`);
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string; code?: string; gate?: SanitizationReport['gate'] };
+      return { ok: false, status: res.status, error: err.error ?? `request failed: ${res.status}`, code: err.code, gate: err.gate };
+    }
+    const data = (await res.json()) as ReplaySealResponse;
+    return { ok: true, data };
   },
   async getPreflight() {
     return json<PublishPreflight>(await fetch('/api/publish/preflight'));

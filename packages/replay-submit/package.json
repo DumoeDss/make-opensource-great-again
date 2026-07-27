@@ -1,0 +1,30 @@
+{
+  "name": "@mosga/replay-submit",
+  "version": "0.1.0",
+  "description": "Cli-resume orchestration: validates consent against a sealed bundle, drives the locked prepare-render-register-execute-dispose order, and converges the three-hash receipt. Structurally separated from @mosga/direct-submit.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@mosga/contracts": "*",
+    "@mosga/replay-bundle": "*",
+    "@mosga/replay-runtime": "*",
+    "@mosga/replay-proxy": "*"
+  }
+}

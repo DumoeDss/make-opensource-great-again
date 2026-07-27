@@ -5,8 +5,18 @@
  * `@mosga/contracts`.
  */
 import type {
+  CliResumeConsent,
+  CliResumeReceipt,
   ContributionConsent,
+  ReplayBundle,
+  ReplayDeliveryTarget,
+  ReplayFinding,
+  ReplayFindingDisposition,
+  ReplayOpaqueDisposition,
+  ReplayOpaqueItem,
   ReplayMode,
+  ReplayTrajectory,
+  SafeSourceSummary,
   SanitizedSession,
   SubmissionReceipt,
 } from '@mosga/contracts';
@@ -15,20 +25,41 @@ import type {
   Finding,
   NonTextItem,
   NormalizationCategory,
+  ReplaySanitizationGate,
+  ReplaySanitizationReport,
   SanitizationReport,
 } from '@mosga/sanitizer';
 
 export type {
+  CliResumeConsent,
+  CliResumeReceipt,
   ContributionConsent,
   Disposition,
   Finding,
   NonTextItem,
   NormalizationCategory,
+  ReplayBundle,
+  ReplayDeliveryTarget,
+  ReplayFinding,
+  ReplayFindingDisposition,
   ReplayMode,
+  ReplayOpaqueDisposition,
+  ReplayOpaqueItem,
+  ReplaySanitizationGate,
+  ReplaySanitizationReport,
+  ReplayTrajectory,
+  SafeSourceSummary,
   SanitizationReport,
   SanitizedSession,
   SubmissionReceipt,
 };
+
+/**
+ * The submit mode the UI tracks. `cli-resume` is the request-authenticity path
+ * (default); `single-shot` / `turn-by-turn` are the reconstructed-API
+ * compatibility modes.
+ */
+export type SubmitMode = 'cli-resume' | ReplayMode;
 
 /** The daemon `/api/health` response (name + version, no secrets). */
 export interface HealthResponse {
@@ -274,5 +305,37 @@ export interface PublishBatchSubmitResult {
     compareUrl: string | null;
     submittedAt: string;
     recordCount: number;
+  };
+}
+
+// ---- replay preparation (prepare → triage → seal → cli-resume submit) ----
+
+/** The `/replay/prepare` response: the replay scan report + draft id. */
+export interface ReplayPrepareResponse {
+  draftId: string;
+  report: ReplaySanitizationReport;
+  rulesetWarnings: RulesetWarning[];
+  delivery: ReplayDeliveryTarget;
+  source: SafeSourceSummary;
+  trajectory: ReplayTrajectory;
+}
+
+/** A replay disposition endpoint response (report + recomputed gate). */
+export interface ReplayReportResponse {
+  report: ReplaySanitizationReport;
+  gate: ReplaySanitizationGate;
+}
+
+/** The `/replay/seal` response: the sealed bundle + hash + summary. */
+export interface ReplaySealResponse {
+  bundle: ReplayBundle;
+  bundleContentHash: string;
+  summary: {
+    draftId: string;
+    sourceCli: string;
+    trajectory: ReplayTrajectory;
+    instructionCount: number;
+    findingCount: number;
+    opaqueItemCount: number;
   };
 }

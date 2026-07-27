@@ -10,9 +10,10 @@ import { Download, Send, UploadCloud } from 'lucide-react';
 import { useState } from 'react';
 
 import type { ApiClient } from '../../api/client';
-import type { SanitizationReport, SanitizedSession, SubmissionReceipt } from '../../api/types';
+import type { CliResumeReceipt, SanitizationReport, SanitizedSession, SubmissionReceipt } from '../../api/types';
 import { usePreflight } from '../../lib/usePreflight';
 import { ExportPreview } from '../ExportPreview';
+import { ReplayPreparation } from '../ReplayPreparation';
 import { SubmitPanel } from '../SubmitPanel';
 import { Button } from '../ui/button';
 import { PublishWizard } from './PublishWizard';
@@ -24,7 +25,7 @@ interface ExitCardsProps {
   exported: SanitizedSession | null;
   exporting?: boolean;
   onExport: () => void;
-  onSubmitted: (receipt: SubmissionReceipt) => void;
+  onSubmitted: (receipt: SubmissionReceipt | CliResumeReceipt) => void;
   /** A successful 出口① publish → the journey's 已完成 state. */
   onPublished: () => void;
   /** From the wizard's `precheck_refused` view: jump back to step ② for a rule. */
@@ -58,6 +59,10 @@ export function ExitCards({
 }: ExitCardsProps): JSX.Element {
   const [showExport, setShowExport] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
+  // The sealed replay bundle produced by the preparation flow; passed to
+  // SubmitPanel so cli-resume submit is enabled end-to-end.
+  const [replayBundle, setReplayBundle] = useState<unknown>(null);
+  const [bundleContentHash, setBundleContentHash] = useState<string | undefined>(undefined);
   const { state, flags } = usePreflight(client);
 
   // Route an exit action through the donation confirm if provided, else run it.
@@ -148,10 +153,22 @@ export function ExitCards({
             将本次会话直投到你选择的模型服务商，用于回放评测。含成本估算与双重知情确认。
           </p>
           <div className="mt-4">
+            <ReplayPreparation
+              client={client}
+              reviewId={reviewId}
+              onSealed={(bundle, hash) => {
+                setReplayBundle(bundle);
+                setBundleContentHash(hash);
+              }}
+            />
+          </div>
+          <div className="mt-4">
             <SubmitPanel
               client={client}
               reviewId={reviewId}
               gate={gate}
+              replayBundle={replayBundle}
+              bundleContentHash={bundleContentHash}
               onSubmitted={onSubmitted}
               beforeSubmit={requireAffirm}
             />
