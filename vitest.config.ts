@@ -38,5 +38,9 @@ export default defineConfig({
     // legitimately exceed vitest's 5s default. 30s gives headroom while still
     // failing a genuinely-hung test fast (a >120s hang trips at 30s, not never).
     testTimeout: 30_000,
+    // Initialize i18next once globally so `useTranslation()` resolves in every
+    // test without an `I18nextProvider` wrapper. The module self-initializes
+    // synchronously with bundled JSON resources (no Suspense, no HTTP).
+    setupFiles: [fileURLToPath(new URL('./packages/ui/src/test-setup.ts', import.meta.url))],
   },
 });

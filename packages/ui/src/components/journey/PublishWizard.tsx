@@ -1,403 +1,667 @@
-/**
- * PublishWizard — the step-④ 出口① three-step publish flow (design B4), rendered
- * inline (not a modal) so the journey stepper stays visible:
- *
- *   ① 预检   — POST publish/plan; pending + timeout states; on `precheck_refused`
- *             show the rule-aggregated blocked reasons + a jump back to the
- *             step-② group for the named rule (no raw values ever shown).
- *   ② PR 预览 — prTitle + prBody (styled <pre>, per Open Question 3 — no markdown
- *             renderer), the staged file list, the branch, and compareUrl.
- *   ③ 提交    — writes to disk (publish/stage). When gh is available AND
- *             authenticated, a one-click publish/submit (push + open PR);
- *             otherwise the staged locations + the exact `plan.commands` (the
- *             last is `gh pr create`) + the `git push`/compareUrl browser
- *             fallback + per-command copy buttons.
- *
- * A successful submit calls `onPublished()` so ReviewView marks step ④ 已完成.
- */
-import { ArrowLeft, Check, ClipboardCopy, ExternalLink, Loader2 } from 'lucide-react';
+import { ArrowLeft, Check, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ApiClient } from '../../api/client';
-import type { PublishError, PublishPlan } from '../../api/types';
+import type {
+  PublicationErrorBody,
+  PublicationPreview,
+  PublicationReceipt,
+  PublicationStatus,
+} from '../../api/types';
+import { AdvancedFold } from '../ui/advanced-fold';
 import { Button } from '../ui/button';
+import { ConfirmDialog } from '../ui/confirm-dialog';
 
 interface PublishWizardProps {
   client: ApiClient;
-  reviewId: string;
-  /** True only when gh is present AND authenticated (from preflight) — enables one-click. */
-  ghReady: boolean;
-  /** Marks step ④ 已完成 in the journey container on a successful submit. */
-  onPublished: () => void;
-  /** Jump back to step ② and select the group holding this rule. */
-  onJumpToRule: (ruleId: string) => void;
+  reviewIds: string[];
+  onPublished: (receipt: PublicationReceipt) => void;
+  onJumpToReviewIssue: (reviewId: string, ruleId?: string) => void;
+  onRefreshStatus: () => Promise<PublicationStatus | null>;
 }
 
-type Step = 'precheck' | 'preview' | 'submit';
+type Machine =
+  | { kind: 'previewing' }
+  | { kind: 'preview_ready'; preview: PublicationPreview }
+  | { kind: 'confirming'; preview: PublicationPreview }
+  | { kind: 'submitting'; preview: PublicationPreview }
+  | { kind: 'succeeded'; preview: PublicationPreview; receipt: PublicationReceipt }
+  | { kind: 'retryable_error'; preview: PublicationPreview; error: PublicationErrorBody }
+  | { kind: 're_preview'; error: PublicationErrorBody | null; canPreview: boolean }
+  | { kind: 'refused'; error: PublicationErrorBody }
+  | { kind: 'error'; error: PublicationErrorBody };
 
-/** How long a plan may run before the wizard shows the (non-fatal) slow notice. */
-const PLAN_TIMEOUT_MS = 12_000;
+const PREVIEW_SLOW_MS = 12_000;
+const FRESHNESS_CODES = new Set([
+  'preview_not_found',
+  'preview_expired',
+  'preview_stale',
+  'target_changed',
+]);
 
 export function PublishWizard({
   client,
-  reviewId,
-  ghReady,
+  reviewIds,
   onPublished,
-  onJumpToRule,
+  onJumpToReviewIssue,
+  onRefreshStatus,
 }: PublishWizardProps): JSX.Element {
-  const [step, setStep] = useState<Step>('precheck');
-  const [plan, setPlan] = useState<PublishPlan | null>(null);
-  const [planning, setPlanning] = useState(false);
+  const [machine, setMachine] = useState<Machine>({ kind: 'previewing' });
   const [slow, setSlow] = useState(false);
-  const [refused, setRefused] = useState<PublishError | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [clock, setClock] = useState(() => Date.now());
+  const slowTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const confirmationTriggerRef = useRef<HTMLButtonElement>(null);
+  const reviewSelectionKey = reviewIds.join('\u0000');
 
-  const [staging, setStaging] = useState(false);
-  const [staged, setStaged] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [published, setPublished] = useState(false);
-
-  const slowTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  const runPrecheck = useCallback(async () => {
-    setPlanning(true);
+  const startPreview = useCallback(async (): Promise<void> => {
+    setMachine({ kind: 'previewing' });
     setSlow(false);
-    setRefused(null);
-    setError(null);
     if (slowTimer.current) clearTimeout(slowTimer.current);
-    slowTimer.current = setTimeout(() => setSlow(true), PLAN_TIMEOUT_MS);
-    try {
-      const res = await client.publishPlan(reviewId);
-      if (res.ok) {
-        setPlan(res.plan);
-        setStep('preview');
-      } else if (res.code === 'precheck_refused') {
-        setRefused(res);
-      } else {
-        setError(res.error || res.code);
-      }
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      if (slowTimer.current) clearTimeout(slowTimer.current);
-      setPlanning(false);
-      setSlow(false);
+    slowTimer.current = setTimeout(() => setSlow(true), PREVIEW_SLOW_MS);
+    const result = await client.previewPublication(reviewIds);
+    if (slowTimer.current) clearTimeout(slowTimer.current);
+    slowTimer.current = null;
+    setSlow(false);
+    if (result.ok) {
+      setClock(Date.now());
+      setMachine({ kind: 'preview_ready', preview: result.data });
+      return;
     }
-  }, [client, reviewId]);
+    if (result.error.code === 'precheck_refused') {
+      setMachine({ kind: 'refused', error: result.error });
+    } else {
+      setMachine({ kind: 'error', error: result.error });
+    }
+  }, [client, reviewSelectionKey]);
 
-  // Kick off the pre-check when the wizard mounts.
   useEffect(() => {
-    void runPrecheck();
+    void startPreview();
     return () => {
       if (slowTimer.current) clearTimeout(slowTimer.current);
     };
-  }, [runPrecheck]);
+  }, [startPreview]);
 
-  const doStage = async (): Promise<boolean> => {
-    setStaging(true);
-    setError(null);
-    try {
-      const res = await client.publishStage(reviewId);
-      if (res.ok) {
-        setStaged(true);
-        return true;
-      }
-      setError(publishErrorText(res));
-      return false;
-    } catch (e) {
-      setError(String(e));
-      return false;
-    } finally {
-      setStaging(false);
+  useEffect(() => {
+    const timer = setInterval(() => setClock(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const activePreview =
+    machine.kind === 'preview_ready' ||
+    machine.kind === 'confirming' ||
+    machine.kind === 'submitting' ||
+    machine.kind === 'succeeded' ||
+    machine.kind === 'retryable_error'
+      ? machine.preview
+      : null;
+  const locallyExpired =
+    activePreview !== null && clock >= Date.parse(activePreview.expiresAt);
+
+  const openConfirmation = (): void => {
+    if (!activePreview) return;
+    if (locallyExpired) {
+      setMachine({
+        kind: 're_preview',
+        canPreview: true,
+        error: {
+          code: 'preview_expired',
+          phase: 'preview',
+          message: 'This publication preview has expired.',
+          retryable: false,
+          recovery: 'Create a new preview and review its public effects.',
+        },
+      });
+      return;
     }
+    setMachine({ kind: 'confirming', preview: activePreview });
   };
 
-  const doSubmit = async (): Promise<void> => {
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await client.publishSubmit(reviewId);
-      if (res.ok) {
-        setStaged(true);
-        setPublished(true);
-        onPublished();
-      } else {
-        setError(publishErrorText(res));
+  const submit = async (preview: PublicationPreview): Promise<void> => {
+    setMachine({ kind: 'submitting', preview });
+    const result = await client.submitPublication({
+      publicationRef: preview.publicationRef,
+      targetRevision: preview.target.revision,
+      contentDigest: preview.contribution.contentDigest,
+      confirmPublic: true,
+    });
+    if (result.ok) {
+      if (!receiptMatchesPreview(result.data, preview)) {
+        setMachine({
+          kind: 'retryable_error',
+          preview,
+          error: receiptBindingError(),
+        });
+        return;
       }
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSubmitting(false);
+      setMachine({ kind: 'succeeded', preview, receipt: result.data });
+      onPublished(result.data);
+      return;
     }
+    const { error } = result;
+    if (FRESHNESS_CODES.has(error.code)) {
+      const refreshed = await onRefreshStatus();
+      setMachine({
+        kind: 're_preview',
+        error,
+        canPreview: isPreviewableStatus(refreshed),
+      });
+      return;
+    }
+    if (error.code === 'review_not_found' || error.code === 'GATE_LOCKED') {
+      setMachine({ kind: 'error', error });
+      return;
+    }
+    if (error.code === 'precheck_refused') {
+      setMachine({ kind: 'refused', error });
+      return;
+    }
+    if (error.retryable) {
+      setMachine({ kind: 'retryable_error', preview, error });
+      return;
+    }
+    const refreshed = await onRefreshStatus();
+    setMachine({
+      kind: 're_preview',
+      error,
+      canPreview: isPreviewableStatus(refreshed),
+    });
   };
 
   return (
-    <div className="space-y-4" data-testid="publish-wizard">
-      <WizardSteps step={step} />
+    <div className="min-w-0 space-y-4" data-testid="publish-wizard">
+      <WizardSteps machine={machine} />
 
-      {error && (
-        <div
-          className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive"
-          data-testid="wizard-error"
+      {machine.kind === 'previewing' && (
+        <section
+          aria-live="polite"
+          className="space-y-3"
+          data-testid="wizard-step-previewing"
         >
-          {error}
-        </div>
-      )}
-
-      {step === 'precheck' && (
-        <div data-testid="wizard-step-precheck" className="space-y-3">
-          {planning && (
-            <p className="flex items-center gap-2 text-sm text-text-muted" data-testid="precheck-pending">
-              <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.5} />
-              正在导出并运行强制预检…
+          <p className="flex items-center gap-2 text-sm text-text-muted">
+            <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.5} />
+            Preparing a read-only safety and pull-request preview for{' '}
+            {reviewIds.length} reviewed {reviewIds.length === 1 ? 'session' : 'sessions'}…
+          </p>
+          {slow && (
+            <p className="rounded-md border border-warning/50 bg-warning/10 p-2 text-sm">
+              Preview is taking longer than expected. The daemon is still working; no
+              repository write has started.
             </p>
           )}
-          {slow && (
-            <div
-              className="rounded-md border border-warning/50 bg-warning/10 p-2 text-sm"
-              data-testid="precheck-timeout"
-            >
-              预检耗时较长，仍在进行中。若长时间无响应，可稍后
-              <button type="button" className="ml-1 text-primary underline" onClick={() => void runPrecheck()}>
-                重试预检
-              </button>
-              。
-            </div>
-          )}
-          {refused && (
-            <div
-              className="space-y-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm"
-              data-testid="precheck-refused"
-            >
-              <p className="font-medium text-destructive">预检拒绝：仍有阻断命中，无法发布。</p>
-              <ul className="space-y-1">
-                {(refused.blockingByRule ?? []).map((b) => (
-                  <li key={b.ruleId} className="flex items-center justify-between gap-2">
-                    <span>
-                      规则「<code className="font-mono">{b.ruleId}</code>」× {b.count} 处
-                    </span>
-                    <Button
-                      type="button"
-                      size="xs"
-                      variant="subtle"
-                      onClick={() => onJumpToRule(b.ruleId)}
-                      data-testid={`jump-to-rule-${b.ruleId}`}
-                    >
-                      <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.5} />
-                      回到② 查看该规则分组
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-              <Button type="button" size="sm" variant="secondary" onClick={() => void runPrecheck()}>
-                重试预检
-              </Button>
-            </div>
-          )}
-        </div>
+        </section>
       )}
 
-      {step === 'preview' && plan && (
-        <div data-testid="wizard-step-preview" className="space-y-3">
-          <div className="rounded-md border border-border bg-surface-1 p-3 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-text-muted">分支</span>
-              <span className="font-mono" data-testid="preview-branch">
-                {plan.branch}
-              </span>
-            </div>
-            <div className="mt-1 flex items-center justify-between">
-              <span className="text-text-muted">目标分支</span>
-              <span className="font-mono">{plan.targetBranch}</span>
-            </div>
-            <div className="mt-1">
-              <span className="text-text-muted">落盘文件</span>
-              <ul className="mt-1 font-mono text-xs text-text-subtle" data-testid="preview-staged-files">
-                {plan.stagedFiles.map((f) => (
-                  <li key={f}>{f}</li>
-                ))}
-              </ul>
-            </div>
-            {plan.compareUrl && (
-              <div className="mt-2">
-                <a
-                  href={plan.compareUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-primary hover:underline"
-                  data-testid="preview-compare-link"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.5} />
-                  在 GitHub 打开 compare
-                </a>
-              </div>
-            )}
-          </div>
-
-          <div>
-            <p className="mb-1 text-sm font-medium">{plan.prTitle}</p>
-            <pre
-              className="max-h-80 overflow-auto rounded-md border border-border bg-surface-2 p-3 font-mono text-xs text-text-muted"
-              data-testid="preview-pr-body"
-            >
-              {plan.prBody}
-            </pre>
-          </div>
-
-          <Button type="button" onClick={() => setStep('submit')} data-testid="wizard-to-submit">
-            下一步：提交
-          </Button>
-        </div>
+      {machine.kind === 'refused' && (
+        <RefusalView
+          error={machine.error}
+          onJump={onJumpToReviewIssue}
+          onRetry={() => void startPreview()}
+        />
       )}
 
-      {step === 'submit' && plan && (
-        <div data-testid="wizard-step-submit" className="space-y-3">
-          {published ? (
-            <div
-              className="flex items-center gap-2 rounded-md border border-success/50 bg-success/10 p-3 text-sm text-success"
-              data-testid="published-badge"
-            >
-              <Check className="h-4 w-4" strokeWidth={1.5} />
-              已提交 PR，分支 <code className="font-mono">{plan.branch}</code> — 出口① 已完成。
-            </div>
-          ) : ghReady ? (
-            <div className="space-y-2">
-              <p className="text-sm text-text-muted">
-                检测到 gh 已登录，可一键落盘并推送、开 PR。
-              </p>
-              <Button
-                type="button"
-                size="lg"
-                disabled={submitting}
-                onClick={() => void doSubmit()}
-                data-testid="wizard-submit-btn"
-              >
-                {submitting ? '提交中…' : '一键提交 PR（出口①）'}
-              </Button>
-            </div>
-          ) : !staged ? (
-            <div className="space-y-2">
-              <p className="text-sm text-text-muted">
-                gh 不可用或未登录：先落盘到你的数据仓库 clone，然后按下方命令手动推送并开 PR。
-              </p>
-              <Button
-                type="button"
-                size="lg"
-                disabled={staging}
-                onClick={() => void doStage()}
-                data-testid="wizard-stage-btn"
-              >
-                {staging ? '落盘中…' : '落盘到数据仓库'}
-              </Button>
-            </div>
-          ) : (
-            <ManualFallback plan={plan} />
+      {machine.kind === 'error' && (
+        <ErrorView
+          error={machine.error}
+          onJump={onJumpToReviewIssue}
+          action={
+            <Button type="button" size="sm" variant="secondary" onClick={() => void startPreview()}>
+              Retry preview
+            </Button>
+          }
+        />
+      )}
+
+      {machine.kind === 're_preview' && (
+        <section
+          className="space-y-3 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm"
+          role="alert"
+          data-testid="wizard-repreview"
+        >
+          <p className="font-medium">
+            {machine.error?.message ?? 'A new publication preview is required.'}
+          </p>
+          {machine.error?.recovery && (
+            <p className="break-words text-text-muted">{machine.error.recovery}</p>
           )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** The gh-free path: staged file locations + copyable commands + compare fallback. */
-function ManualFallback({ plan }: { plan: PublishPlan }): JSX.Element {
-  return (
-    <div className="space-y-3" data-testid="manual-fallback">
-      <div className="rounded-md border border-success/40 bg-success/10 p-3 text-sm" data-testid="staged-locations">
-        <p className="font-medium text-success">已落盘到你的数据仓库 clone：</p>
-        <ul className="mt-1 font-mono text-xs text-text-muted">
-          {plan.stagedFiles.map((f) => (
-            <li key={f}>{f}</li>
-          ))}
-        </ul>
-        <p className="mt-1 text-xs text-text-subtle">
-          分支 <code className="font-mono">{plan.branch}</code>
-        </p>
-      </div>
-
-      <div className="space-y-1" data-testid="manual-commands">
-        <p className="text-sm text-text-muted">在数据仓库目录内依次执行（最后一条 <code>gh pr create</code> 需 gh 登录）：</p>
-        {plan.commands.map((cmd, i) => (
-          <div
-            key={cmd}
-            className="flex items-center gap-2 rounded-md border border-border bg-surface-2 px-2 py-1"
+          <p className="text-text-muted">
+            The previous sealed snapshot was discarded. Review and confirm a new
+            preview; it will not be submitted automatically.
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            disabled={!machine.canPreview}
+            onClick={() => void startPreview()}
           >
-            <code className="min-w-0 flex-1 overflow-x-auto whitespace-pre font-mono text-xs">{cmd}</code>
+            <RefreshCw className="h-4 w-4" strokeWidth={1.5} />
+            Create new preview
+          </Button>
+          {!machine.canPreview && (
+            <p className="text-text-muted">
+              Publication is not currently ready. Resolve the refreshed target status
+              before creating another preview.
+            </p>
+          )}
+        </section>
+      )}
+
+      {activePreview && machine.kind !== 'succeeded' && (
+        <PreviewSummary preview={activePreview} locallyExpired={locallyExpired} />
+      )}
+
+      {machine.kind === 'preview_ready' && (
+        <div className="space-y-2">
+          {locallyExpired ? (
+            <div role="alert" className="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm">
+              This preview has expired locally. Create a new preview before confirming.
+            </div>
+          ) : null}
+          <Button
+            ref={confirmationTriggerRef}
+            type="button"
+            size="lg"
+            disabled={locallyExpired}
+            onClick={openConfirmation}
+            data-testid="wizard-open-confirmation"
+          >
+            Review public publication
+          </Button>
+          {locallyExpired && (
+            <Button type="button" variant="secondary" onClick={() => void startPreview()}>
+              Create new preview
+            </Button>
+          )}
+        </div>
+      )}
+
+      {machine.kind === 'submitting' && (
+        <p className="flex items-center gap-2 text-sm text-text-muted" aria-live="polite">
+          <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.5} />
+          Creating or recovering the confirmed public pull request…
+        </p>
+      )}
+
+      {machine.kind === 'retryable_error' && (
+        <ErrorView
+          error={machine.error}
+          action={
             <Button
               type="button"
-              size="icon"
-              variant="ghost"
-              aria-label="复制命令"
-              data-testid={`copy-cmd-${i}`}
-              onClick={() => void copyText(cmd)}
+              onClick={() => void submit(machine.preview)}
+              data-testid="wizard-retry-submit"
             >
-              <ClipboardCopy className="h-4 w-4" strokeWidth={1.5} />
+              Retry this exact publication
             </Button>
-          </div>
-        ))}
-      </div>
-
-      {plan.compareUrl && (
-        <p className="text-sm">
-          推送后可直接在浏览器打开{' '}
-          <a
-            href={plan.compareUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-primary hover:underline"
-            data-testid="manual-compare-link"
-          >
-            <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.5} />
-            compare 页
-          </a>{' '}
-          手动开 PR。
-        </p>
+          }
+        />
       )}
+
+      {machine.kind === 'succeeded' && <ReceiptView receipt={machine.receipt} />}
+
+      <ConfirmDialog
+        open={machine.kind === 'confirming'}
+        onOpenChange={(open) => {
+          if (!open && machine.kind === 'confirming') {
+            setMachine({ kind: 'preview_ready', preview: machine.preview });
+          }
+        }}
+        title="Create this public pull request?"
+        description={
+          activePreview
+            ? `Upstream ${activePreview.target.upstream}; push repository ${activePreview.target.pushRepository}; ${activePreview.contribution.recordCount} record(s). ${
+                activePreview.target.willCreateFork
+                  ? `A public fork ${activePreview.target.pushRepository} may be created first.`
+                  : 'No new fork will be created.'
+              }`
+            : undefined
+        }
+        confirmLabel="Confirm and create PR"
+        cancelLabel="Cancel"
+        variant="default"
+        testid="publication-confirm"
+        returnFocusRef={confirmationTriggerRef}
+        onConfirm={() => {
+          if (activePreview) void submit(activePreview);
+        }}
+      />
     </div>
   );
 }
 
-const STEP_LABELS: Array<{ id: Step; label: string }> = [
-  { id: 'precheck', label: '① 预检' },
-  { id: 'preview', label: '② PR 预览' },
-  { id: 'submit', label: '③ 提交' },
-];
-
-function WizardSteps({ step }: { step: Step }): JSX.Element {
-  const order: Step[] = ['precheck', 'preview', 'submit'];
-  const activeIdx = order.indexOf(step);
+function PreviewSummary({
+  preview,
+  locallyExpired,
+}: {
+  preview: PublicationPreview;
+  locallyExpired: boolean;
+}): JSX.Element {
   return (
-    <ol className="flex gap-2 text-xs" data-testid="wizard-steps">
-      {STEP_LABELS.map((s, i) => (
-        <li
-          key={s.id}
-          aria-current={s.id === step ? 'step' : undefined}
-          className={
-            i === activeIdx
-              ? 'font-medium text-foreground'
-              : i < activeIdx
-                ? 'text-success'
-                : 'text-text-subtle'
-          }
+    <section
+      className="min-w-0 space-y-4"
+      aria-label="Publication preview"
+      data-testid="publication-preview"
+    >
+      <div className="rounded-md border border-border bg-surface-1 p-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-display text-base font-semibold">Public target and route</h3>
+          <span className={locallyExpired ? 'text-destructive' : 'text-text-muted'}>
+            {locallyExpired ? 'Expired' : `Expires ${formatTime(preview.expiresAt)}`}
+          </span>
+        </div>
+        <dl className="grid min-w-0 gap-x-5 gap-y-2 text-sm sm:grid-cols-2">
+          <Fact label="Upstream PR target" value={preview.target.upstream} />
+          <Fact label="Push repository" value={preview.target.pushRepository} />
+          <Fact label="Route" value={preview.target.route} />
+          <Fact label="Fork provision" value={preview.target.forkProvision} />
+          <Fact
+            label="Public fork effect"
+            value={
+              preview.target.willCreateFork
+                ? 'A public fork may be created on confirmed submit.'
+                : 'No new fork will be created.'
+            }
+          />
+          <Fact label="Base branch" value={preview.target.baseBranch} />
+          <Fact label="Base commit" value={preview.target.baseCommitSha} mono />
+          <Fact label="Target revision" value={String(preview.target.revision)} />
+        </dl>
+      </div>
+
+      <div className="rounded-md border border-border bg-surface-1 p-3">
+        <h3 className="font-display text-base font-semibold">Pull request</h3>
+        <dl className="mt-3 grid min-w-0 gap-x-5 gap-y-2 text-sm sm:grid-cols-2">
+          <Fact label="Contribution branch" value={preview.contribution.branch} mono />
+          <Fact label="Records" value={String(preview.contribution.recordCount)} />
+          <Fact label="Total bytes" value={String(preview.contribution.totalBytes)} />
+          <Fact label="Content digest" value={preview.contribution.contentDigest} mono />
+          <Fact label="Commit message" value={preview.contribution.commitMessage} />
+          <Fact label="PR title" value={preview.contribution.prTitle} />
+        </dl>
+        <div className="mt-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-text-subtle">PR body</p>
+          <p className="mt-1 whitespace-pre-wrap break-words rounded-md bg-surface-2 p-3 text-sm text-text-muted">
+            {preview.contribution.prBody}
+          </p>
+        </div>
+      </div>
+
+      <div className="min-w-0 rounded-md border border-border bg-surface-1 p-3">
+        <h3 className="font-display text-base font-semibold">File commitments</h3>
+        <div className="mt-3 max-w-full overflow-x-auto rounded-md border border-border">
+          <table className="w-full min-w-[42rem] text-left text-xs">
+            <thead className="bg-surface-2 text-text-subtle">
+              <tr>
+                <th className="px-3 py-2 font-medium">Kind</th>
+                <th className="px-3 py-2 font-medium">Repository-relative path</th>
+                <th className="px-3 py-2 font-medium">Bytes</th>
+                <th className="px-3 py-2 font-medium">SHA-256</th>
+              </tr>
+            </thead>
+            <tbody>
+              {preview.contribution.files.map((file) => (
+                <tr key={`${file.kind}-${file.path}`} className="border-t border-border">
+                  <td className="px-3 py-2">{file.kind}</td>
+                  <td className="break-all px-3 py-2 font-mono">{file.path}</td>
+                  <td className="px-3 py-2 tabular-nums">{file.bytes}</td>
+                  <td className="break-all px-3 py-2 font-mono">{file.contentHash}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <AdvancedFold label="Advanced · engine pins">
+        <dl className="grid min-w-0 gap-2 text-sm sm:grid-cols-2">
+          <Fact
+            label="Sanitizer"
+            value={preview.contribution.engine.sanitizerPackageVersion}
+            mono
+          />
+          <Fact label="Ruleset" value={preview.contribution.engine.rulesetVersion} mono />
+          <Fact label="Gitleaks" value={preview.contribution.engine.gitleaksVersion} mono />
+          <Fact label="Bundle contract" value={String(preview.contribution.contractVersion)} />
+        </dl>
+      </AdvancedFold>
+    </section>
+  );
+}
+
+function RefusalView({
+  error,
+  onJump,
+  onRetry,
+}: {
+  error: PublicationErrorBody;
+  onJump: (reviewId: string, ruleId?: string) => void;
+  onRetry: () => void;
+}): JSX.Element {
+  return (
+    <section
+      className="space-y-3 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm"
+      role="alert"
+      data-testid="precheck-refused"
+    >
+      <p className="font-medium text-destructive">{error.message}</p>
+      <ul className="space-y-3">
+        {(error.refusals ?? []).map((refusal) => (
+          <li key={`${refusal.reviewId}-${refusal.sessionId}`} className="rounded-md bg-surface-1 p-3">
+            <p className="break-all font-mono text-xs">
+              Review {refusal.reviewId} · session {refusal.sessionId}
+            </p>
+            <ul className="mt-2 space-y-1">
+              {Object.entries(refusal.blockingByRule).map(([ruleId, count]) => (
+                <li key={ruleId} className="flex flex-wrap items-center justify-between gap-2">
+                  <span>
+                    Rule <code className="font-mono">{ruleId}</code> · {count} blocking
+                  </span>
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="subtle"
+                    onClick={() => onJump(refusal.reviewId, ruleId)}
+                    data-testid={`jump-to-review-rule-${refusal.reviewId}-${ruleId}`}
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.5} />
+                    Return to review
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
+      <Button type="button" size="sm" variant="secondary" onClick={onRetry}>
+        Run preview again
+      </Button>
+    </section>
+  );
+}
+
+function ErrorView({
+  error,
+  onJump,
+  action,
+}: {
+  error: PublicationErrorBody;
+  onJump?: (reviewId: string, ruleId?: string) => void;
+  action: React.ReactNode;
+}): JSX.Element {
+  return (
+    <section
+      className="space-y-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm"
+      role="alert"
+      data-testid="wizard-error"
+    >
+      <p className="font-medium text-destructive">{error.message}</p>
+      {error.recovery && <p className="break-words text-text-muted">{error.recovery}</p>}
+      {error.reviewId && onJump && (
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          onClick={() => onJump(error.reviewId!)}
+          data-testid={`jump-to-review-${error.reviewId}`}
         >
-          {s.label}
-        </li>
-      ))}
+          <ArrowLeft className="h-4 w-4" strokeWidth={1.5} />
+          Return to affected review
+        </Button>
+      )}
+      {action}
+    </section>
+  );
+}
+
+function ReceiptView({ receipt }: { receipt: PublicationReceipt }): JSX.Element {
+  const prUrl = safeGitHubPullRequestUrl(receipt.prUrl, receipt.prNumber);
+  return (
+    <section
+      className="min-w-0 space-y-3 rounded-md border border-success/50 bg-success/10 p-4"
+      aria-live="polite"
+      data-testid="publication-receipt"
+    >
+      <div className="flex flex-wrap items-center gap-2 text-success">
+        <Check className="h-5 w-5" strokeWidth={1.5} />
+        <h3 className="font-display text-base font-semibold">Public pull request ready</h3>
+      </div>
+      {prUrl ? (
+        <a
+          href={prUrl}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="inline-flex items-center gap-1 break-all font-medium text-primary hover:underline"
+          data-testid="publication-pr-link"
+        >
+          Pull request #{receipt.prNumber}
+          <ExternalLink className="h-4 w-4 shrink-0" strokeWidth={1.5} />
+        </a>
+      ) : (
+        <p className="font-medium text-text" data-testid="publication-pr-link-unavailable">
+          Pull request #{receipt.prNumber} · link unavailable
+        </p>
+      )}
+      <dl className="grid min-w-0 gap-x-5 gap-y-2 text-sm sm:grid-cols-2">
+        <Fact label="Upstream" value={receipt.upstream} />
+        <Fact label="Push repository" value={receipt.pushRepository} />
+        <Fact label="Mode" value={receipt.mode} />
+        <Fact label="Base branch" value={receipt.baseBranch} mono />
+        <Fact label="Base commit" value={receipt.baseCommitSha} mono />
+        <Fact label="Contribution branch" value={receipt.branch} mono />
+        <Fact label="Contribution commit" value={receipt.commitSha} mono />
+        <Fact label="Target revision" value={String(receipt.targetRevision)} />
+        <Fact label="Record count" value={String(receipt.recordCount)} />
+        <Fact label="Content digest" value={receipt.contentDigest} mono />
+        <Fact label="Submitted" value={formatTime(receipt.submittedAt)} />
+      </dl>
+    </section>
+  );
+}
+
+function safeGitHubPullRequestUrl(raw: string, prNumber: number): string | null {
+  try {
+    const url = new URL(raw);
+    const match = /^\/[^/]+\/[^/]+\/pull\/(\d+)\/?$/.exec(url.pathname);
+    if (
+      url.protocol !== 'https:' ||
+      url.hostname !== 'github.com' ||
+      url.port ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      !match ||
+      Number(match[1]) !== prNumber
+    ) {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function isPreviewableStatus(status: PublicationStatus | null): boolean {
+  return status?.state === 'ready' || status?.state === 'fork_confirmation_required';
+}
+
+function receiptMatchesPreview(
+  receipt: PublicationReceipt,
+  preview: PublicationPreview,
+): boolean {
+  return (
+    receipt.publicationRef === preview.publicationRef &&
+    receipt.targetRevision === preview.target.revision &&
+    receipt.contentDigest === preview.contribution.contentDigest &&
+    receipt.upstream === preview.target.upstream &&
+    receipt.pushRepository === preview.target.pushRepository &&
+    receipt.mode === preview.target.route &&
+    receipt.baseBranch === preview.target.baseBranch &&
+    receipt.baseCommitSha === preview.target.baseCommitSha &&
+    receipt.branch === preview.contribution.branch &&
+    receipt.recordCount === preview.contribution.recordCount
+  );
+}
+
+function receiptBindingError(): PublicationErrorBody {
+  return {
+    code: 'transport_error',
+    phase: 'pull_request',
+    message: 'The publication service returned an invalid receipt.',
+    retryable: true,
+    recovery: 'Retry this exact publication. If the problem continues, restart the daemon.',
+  };
+}
+
+function Fact({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}): JSX.Element {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs font-medium uppercase tracking-wide text-text-subtle">{label}</dt>
+      <dd className={`mt-0.5 break-all text-text ${mono ? 'font-mono' : ''}`}>{value}</dd>
+    </div>
+  );
+}
+
+function WizardSteps({ machine }: { machine: Machine }): JSX.Element {
+  const active =
+    machine.kind === 'previewing' || machine.kind === 'refused' || machine.kind === 'error'
+      ? 0
+      : machine.kind === 'preview_ready' ||
+          machine.kind === 'confirming' ||
+          machine.kind === 're_preview'
+        ? 1
+        : 2;
+  return (
+    <ol className="flex flex-wrap gap-3 text-xs" aria-label="Publication progress">
+      {['1. Safety preview', '2. PR preview', '3. Confirm and create PR'].map(
+        (label, index) => (
+          <li
+            key={label}
+            aria-current={index === active ? 'step' : undefined}
+            className={
+              index === active
+                ? 'font-medium text-foreground'
+                : index < active
+                  ? 'text-success'
+                  : 'text-text-subtle'
+            }
+          >
+            {label}
+          </li>
+        ),
+      )}
     </ol>
   );
 }
 
-function publishErrorText(err: PublishError): string {
-  if (err.code === 'branch_exists' && err.branch) {
-    return `${err.error}（分支：${err.branch}）`;
-  }
-  return err.error || err.code;
-}
-
-async function copyText(text: string): Promise<void> {
-  try {
-    await navigator.clipboard?.writeText(text);
-  } catch {
-    // Clipboard is best-effort; the command is visible + selectable regardless.
-  }
+function formatTime(value: string): string {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString() : value;
 }

@@ -3,10 +3,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { isEntrypoint, run } from '../cli.js';
 import type { RunningDaemon } from '../server.js';
+
+afterEach(() => {
+  process.exitCode = undefined;
+});
 
 describe('isEntrypoint (auto-run guard)', () => {
   it('returns false when there is no argv1 (imported, not launched)', () => {
@@ -73,6 +77,37 @@ describe('isEntrypoint (auto-run guard)', () => {
 // opening a browser, and bind an ephemeral port (0) to avoid clashing with a
 // real daemon on 8899.
 describe('mosga ui CLI', () => {
+  it('rejects both obsolete data-repo forms as unknown options', async () => {
+    for (const argv of [
+      ['ui', '--data-repo', 'C:\\private'],
+      ['ui', '--data-repo=C:\\private'],
+    ]) {
+      const startDaemon = vi.fn();
+      const stderr: string[] = [];
+      const result = await run(argv, {
+        startDaemon,
+        stdout: () => {},
+        stderr: (line) => stderr.push(line),
+      });
+      expect(result).toBeUndefined();
+      expect(startDaemon).not.toHaveBeenCalled();
+      expect(stderr.join('')).toContain('Unknown option: --data-repo');
+      expect(process.exitCode).toBe(2);
+      process.exitCode = undefined;
+    }
+  });
+
+  it('help documents GitHub-managed publication without any workspace option', async () => {
+    const output: string[] = [];
+    await run(['ui', '--help'], {
+      stdout: (line) => output.push(line),
+      stderr: () => {},
+    });
+    const help = output.join('');
+    expect(help).not.toContain('--data-repo');
+    expect(help).not.toContain('LOCAL clone');
+  });
+
   it('--no-open starts and serves without invoking the browser opener', async () => {
     const openBrowser = vi.fn();
     let daemon: RunningDaemon | undefined;

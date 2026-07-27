@@ -25,3 +25,14 @@ export {
   remoteHost,
 } from './whitelist.js';
 export { resolveUiDist } from './staticUi.js';
+export {
+  PublicationError,
+  type GitHubPublication,
+  type PublicationErrorBody,
+  type PublicationErrorCode,
+  type PublicationIssue,
+  type PublicationPreview,
+  type PublicationReceipt,
+  type PublicationStatus,
+  type TargetSummary,
+} from './publication/index.js';

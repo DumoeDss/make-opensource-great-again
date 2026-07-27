@@ -1,19 +1,24 @@
 /**
  * ExitCards — step ④ (design B3/B4). Two equal exit cards + a low-key secondary
- * export. 出口①「公开数据集」is now a preflight-driven four-state card (就绪 /
- * 需配置 / gh 未登录 / 缺依赖); 就绪 (and gh 未登录, via the manual path) opens the
- * three-step `PublishWizard`. 出口②「API 直投」reuses `SubmitPanel` with every
+ * export. 出口① consumes the daemon-owned publication status and opens the shared
+ * preview/confirm/submit wizard only when publication can proceed. 出口② reuses
+ * `SubmitPanel` with every
  * semantic intact; its receipt is the journey's completion state. 「仅导出脱敏
  * 文件」 keeps the existing sanitized-export path.
  */
 import { Download, Send, UploadCloud } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { ApiClient } from '../../api/client';
 import type { CliResumeReceipt, SanitizationReport, SanitizedSession, SubmissionReceipt } from '../../api/types';
-import { usePreflight } from '../../lib/usePreflight';
+import { usePublication } from '../../lib/usePublication';
 import { ExportPreview } from '../ExportPreview';
 import { ReplayPreparation } from '../ReplayPreparation';
+import {
+  canPreviewPublication,
+  PublicationStatusView,
+} from '../publication/PublicationStatusView';
 import { SubmitPanel } from '../SubmitPanel';
 import { Button } from '../ui/button';
 import { PublishWizard } from './PublishWizard';
@@ -28,8 +33,8 @@ interface ExitCardsProps {
   onSubmitted: (receipt: SubmissionReceipt | CliResumeReceipt) => void;
   /** A successful 出口① publish → the journey's 已完成 state. */
   onPublished: () => void;
-  /** From the wizard's `precheck_refused` view: jump back to step ② for a rule. */
-  onJumpToRule: (ruleId: string) => void;
+  /** Return an attributed publication error to the disposition workspace. */
+  onJumpToReviewIssue: (reviewId: string, ruleId?: string) => void;
   /**
    * Gate the first exit action behind the one-time donation confirm (design B3).
    * Optional so `ExitCards` stays independently usable — defaults to running the
@@ -37,13 +42,6 @@ interface ExitCardsProps {
    */
   requireAffirm?: (proceed: () => void) => void;
 }
-
-/** Guidance text for each non-ready preflight state. */
-const STATE_GUIDANCE: Record<string, string> = {
-  需配置: '尚未配置数据仓库。以 `--data-repo <路径>` 重启 daemon 后即可发布（路径仅服务端配置，不经界面填写）。',
-  缺依赖: '缺少 git，或数据仓库工作区不干净。请安装 git、提交或清理工作区后重试。',
-  gh未登录: 'gh 已安装但未登录。可继续走手动路径（落盘 + 手动推送开 PR），或先 `gh auth login` 以启用一键提交。',
-};
 
 export function ExitCards({
   client,
@@ -54,75 +52,76 @@ export function ExitCards({
   onExport,
   onSubmitted,
   onPublished,
-  onJumpToRule,
+  onJumpToReviewIssue,
   requireAffirm,
 }: ExitCardsProps): JSX.Element {
+  const { t } = useTranslation();
   const [showExport, setShowExport] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   // The sealed replay bundle produced by the preparation flow; passed to
   // SubmitPanel so cli-resume submit is enabled end-to-end.
   const [replayBundle, setReplayBundle] = useState<unknown>(null);
   const [bundleContentHash, setBundleContentHash] = useState<string | undefined>(undefined);
-  const { state, flags } = usePreflight(client);
+  const publication = usePublication(client);
 
   // Route an exit action through the donation confirm if provided, else run it.
   const guard = requireAffirm ?? ((proceed: () => void) => proceed());
 
-  const ghReady = !!(flags?.ghAvailable && flags?.ghAuthenticated);
-  const canPublish = state === '就绪' || state === 'gh未登录';
+  const canPublish =
+    publication.loadState === 'loaded' &&
+    canPreviewPublication(publication.status);
   const ctaLabel =
-    state === 'loading'
-      ? '检查发布环境…'
-      : state === 'gh未登录'
-        ? '开始发布（手动路径）'
-        : '开始发布';
+    publication.loadState === 'loading' ? 'Checking target…' : 'Preview public PR';
 
   return (
     <div className="space-y-4" data-testid="exit-cards">
       <div className="grid gap-4 md:grid-cols-2">
-        {/* 出口① — preflight-driven four-state card + inline publish wizard. */}
+        {/* 出口① — server-owned target status + one shared publication wizard. */}
         <section
           className="flex flex-col rounded-lg border border-border bg-surface-1 p-5"
           data-testid="exit-one"
         >
           <div className="flex items-center gap-2">
             <UploadCloud className="h-5 w-5 text-primary" strokeWidth={1.5} />
-            <h3 className="font-display text-lg font-semibold">出口①　公开数据集</h3>
+            <h3 className="font-display text-lg font-semibold">{t('exit.oneTitle')}</h3>
           </div>
           <p className="mt-2 text-sm text-text-muted">
-            将脱敏后的会话作为 PR 贡献到公开数据仓库：预检 → PR 预览 → 提交。为最大化开放价值的
-            首选通道。
+            {t('exit.oneDescription')}
           </p>
 
-          <div className="mt-2 text-xs" data-testid="exit-one-state">
-            <span
-              className={
-                state === '就绪'
-                  ? 'text-success'
-                  : state === 'loading'
-                    ? 'text-text-subtle'
-                    : 'text-warning'
-              }
-            >
-              状态：{state === 'loading' ? '检测中' : state}
-            </span>
+          <div className="mt-3 flex-1" data-testid="exit-one-state" aria-live="polite">
+            {publication.loadState === 'loading' && (
+              <p className="text-xs text-text-subtle">Loading GitHub target status…</p>
+            )}
+            {publication.status && (
+              <PublicationStatusView status={publication.status} />
+            )}
+            {publication.loadState === 'error' && publication.error && (
+              <div role="alert" className="space-y-1 text-xs text-destructive">
+                <p>{publication.error.message}</p>
+                {publication.error.recovery && <p>{publication.error.recovery}</p>}
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="secondary"
+                  onClick={() => void publication.refresh()}
+                >
+                  Retry status
+                </Button>
+              </div>
+            )}
           </div>
-          {state !== 'loading' && state !== '就绪' && STATE_GUIDANCE[state] && (
-            <p className="mt-1 flex-1 text-xs text-text-subtle" data-testid="exit-one-guidance">
-              {STATE_GUIDANCE[state]}
-            </p>
-          )}
 
           {wizardOpen ? (
             <div className="mt-4">
               <PublishWizard
                 client={client}
-                reviewId={reviewId}
-                ghReady={ghReady}
+                reviewIds={[reviewId]}
                 onPublished={onPublished}
-                onJumpToRule={(ruleId) => {
+                onRefreshStatus={publication.refresh}
+                onJumpToReviewIssue={(attributedReviewId, ruleId) => {
                   setWizardOpen(false);
-                  onJumpToRule(ruleId);
+                  onJumpToReviewIssue(attributedReviewId, ruleId);
                 }}
               />
             </div>
@@ -147,10 +146,10 @@ export function ExitCards({
         >
           <div className="flex items-center gap-2">
             <Send className="h-5 w-5 text-primary" strokeWidth={1.5} />
-            <h3 className="font-display text-lg font-semibold">出口②　API 直投</h3>
+            <h3 className="font-display text-lg font-semibold">{t('exit.twoTitle')}</h3>
           </div>
           <p className="mt-2 text-sm text-text-muted">
-            将本次会话直投到你选择的模型服务商，用于回放评测。含成本估算与双重知情确认。
+            {t('exit.twoDescription')}
           </p>
           <div className="mt-4">
             <ReplayPreparation
@@ -192,7 +191,7 @@ export function ExitCards({
           data-testid="export-secondary"
         >
           <Download className="h-4 w-4" strokeWidth={1.5} />
-          {exporting ? '导出中…' : '仅导出脱敏文件'}
+          {exporting ? t('exit.exporting') : t('exit.exportOnly')}
         </Button>
         {showExport && (
           <div className="mt-3">

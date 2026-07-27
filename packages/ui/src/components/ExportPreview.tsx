@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 import type { SanitizedSession } from '../api/types';
 import { AdvancedFold } from './ui/advanced-fold';
 import { Badge } from './ui/badge';
@@ -12,6 +14,7 @@ interface ExportPreviewProps {
  * collapsed 「高级」 fold (design premise 3 — no bare `<pre>` JSON as primary).
  */
 export function ExportPreview({ session }: ExportPreviewProps): JSX.Element {
+  const { t } = useTranslation();
   if (!session) {
     return (
       <p className="text-sm text-text-subtle" data-testid="export-empty">
@@ -28,7 +31,7 @@ export function ExportPreview({ session }: ExportPreviewProps): JSX.Element {
         </Badge>
         <Badge variant="secondary">contributor: {session.meta.contributorAlias}</Badge>
       </div>
-      <AdvancedFold label="高级：原始 JSON" data-testid="export-advanced">
+      <AdvancedFold label={t('export.advancedJson')} data-testid="export-advanced">
         <pre className="max-h-[28rem] overflow-auto rounded-md bg-surface-2 p-3 font-mono text-xs text-text-muted">
           {JSON.stringify(session, null, 2)}
         </pre>

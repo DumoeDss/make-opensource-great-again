@@ -1,8 +1,6 @@
 /**
- * API-surface types. The report/finding model comes straight from
- * `@mosga/sanitizer` via `import type` (erased at runtime — zero pull-in), so the
- * UI never redefines the sanitizer's contract, and the envelope from
- * `@mosga/contracts`.
+ * Browser API-surface types. Server-only implementation types are mirrored at
+ * the HTTP boundary instead of being imported into the Vite graph.
  */
 import type {
   CliResumeConsent,
@@ -67,7 +65,6 @@ export interface HealthResponse {
   version: string;
 }
 
-/** A selectable direct-submit provider (key-free — never carries a key). */
 export interface ProviderTarget {
   id: string;
   name: string;
@@ -76,13 +73,9 @@ export interface ProviderTarget {
   models: string[];
 }
 
-/** The four request formats a custom provider may use. */
 export type ApiFormat = 'openai' | 'openai-response' | 'anthropic' | 'gemini';
-
-/** The list of `apiFormat` options for the custom-provider form dropdown. */
 export const API_FORMATS: ApiFormat[] = ['openai', 'openai-response', 'anthropic', 'gemini'];
 
-/** A custom-provider create/edit payload (key-free). `id` is client-chosen on create. */
 export interface CustomProviderInput {
   id: string;
   name: string;
@@ -91,10 +84,8 @@ export interface CustomProviderInput {
   models: string[];
 }
 
-/** Per-provider key status — `configured` boolean only, never any key bytes. */
 export type KeyStatusMap = Record<string, { configured: boolean }>;
 
-/** The submit cost-estimate response (mirrors the daemon shape + content hash). */
 export interface SubmitEstimate {
   replayMode: ReplayMode;
   inputTokens: number;
@@ -102,15 +93,12 @@ export interface SubmitEstimate {
   totalTokens: number;
   requestCount: number;
   estimatedCostUsd: number;
-  /** Whether the cost used provider-specific pricing or the generic default. */
   pricingSource?: 'provider' | 'default';
-  /** sha256 of the stamped session — binds the consent record to exact content. */
   contentHash: string;
 }
 
 export type NonTextDisposition = NonTextItem['disposition'];
 
-/** A rule that failed to compile on this runtime (mirrors the daemon shape). */
 export interface RulesetWarning {
   ruleId: string;
   reason: string;
@@ -130,7 +118,6 @@ export interface ProjectAnnotation {
   gitRemote: string | null;
   recommended: boolean;
   recommendReason: string;
-  /** Cheap per-project session count from the daemon (absent on older payloads). */
   sessionCount?: number;
 }
 
@@ -158,12 +145,6 @@ export interface CreateReviewResponse {
   rulesetWarnings: RulesetWarning[];
 }
 
-/**
- * One entry in the review queue: the created review plus the `SessionRef` it came
- * from. The ref rides along because `CreateReviewResponse` carries no title/time —
- * the queue bar needs them to label each session. A length-1 queue is a single
- * review, behaviourally identical to the pre-queue single-session journey.
- */
 export interface QueueItem {
   review: CreateReviewResponse;
   ref: SessionRef;
@@ -179,132 +160,110 @@ export interface ExportResponse {
   gate: SanitizationReport['gate'];
 }
 
-// ---- 出口① publish (plan / stage / submit + preflight) -------------------
+// ---- 出口① GitHub publication ---------------------------------------------
 
-/** The five capability flags driving the exit-① card's four states. */
-export interface PublishPreflight {
-  dataRepoConfigured: boolean;
-  gitAvailable: boolean;
-  ghAvailable: boolean;
-  ghAuthenticated: boolean;
-  repoClean: boolean;
-}
-
-/**
- * The UI-safe subset of the publisher's `ContributionPlan` (record bytes
- * EXCLUDED — a byte count + content hash stand in), plus the daemon-derived
- * `compareUrl` for the gh-free browser fallback.
- */
-export interface PublishPlan {
-  branch: string;
-  targetBranch: string;
-  recordPath: string;
-  provenancePath: string;
-  prTitle: string;
-  prBody: string;
-  commitMessage: string;
-  recordCount: number;
-  ghAvailable: boolean;
-  stagedFiles: string[];
-  commands: string[];
-  provenance: Record<string, unknown>;
-  engine: Record<string, unknown>;
-  compareUrl: string | null;
-  recordBytes: number;
-  contentHash: string;
-}
-
-/** A typed publish error body (mirrors `/submit`: `{ error, code, ...detail }`). */
-export interface PublishError {
-  error: string;
-  code: string;
-  /** `precheck_refused` detail: rule-aggregated blocking counts (never raw values). */
-  blockingByRule?: Array<{ ruleId: string; count: number }>;
-  /** `branch_exists` detail: the existing deterministic branch name. */
-  branch?: string;
-  /**
-   * Batch `precheck_refused` detail: per-session rule-aggregated counts (never raw
-   * values). The UI groups the refusal by session and offers a jump back to ②.
-   */
-  blockingBySession?: Array<{
-    reviewId: string;
-    sessionId: string;
-    blockingByRule: Array<{ ruleId: string; count: number }>;
-  }>;
-  /** Batch gate/404 attribution: the offending review (`GATE_LOCKED` / unknown). */
-  reviewId?: string;
-}
-
-export interface PublishStageResult {
-  staged: true;
-  branch: string;
-  stagedFiles: string[];
-  recordPath: string;
-}
-
-export interface PublishSubmitResult {
-  opened: true;
-  branch: string;
-  receipt: {
-    branch: string;
-    targetBranch: string;
-    prTitle: string;
-    compareUrl: string | null;
-    submittedAt: string;
+export interface PublicationTargetSummary {
+  repositoryId: string;
+  slug: string;
+  /** Public contract field. Intentionally never rendered by publication UI. */
+  url: string;
+  visibility: 'public';
+  defaultBranch: string;
+  baseCommitSha: string;
+  manifest: {
+    kind: 'mosga-community-data';
+    contractVersion: 1;
+    acceptedSchemaVersions: string[];
+    license: string;
+    contentHash: string;
   };
 }
 
-// ---- 批量 出口① publish (batch plan / stage / submit) ---------------------
+export type PublicationIssueCode =
+  | 'target_not_found'
+  | 'target_incompatible'
+  | 'target_store_unavailable'
+  | 'github_client_missing'
+  | 'github_unavailable'
+  | 'permission_denied'
+  | 'fork_failed';
 
-/** One record's UI-safe metadata in a batch plan (bytes excluded — count + hash stand in). */
-export interface PublishBatchRecord {
-  sessionId: string;
-  recordPath: string;
-  provenancePath: string;
-  recordBytes: number;
+export interface PublicationIssue {
+  code: PublicationIssueCode;
+  message: string;
+  recovery?: string;
+  retryable: boolean;
+}
+
+/** Server-owned readiness; loading and transport failure live outside this union. */
+export type PublicationStatus =
+  | { state: 'unconfigured'; revision: number }
+  | {
+      state: 'login_required';
+      revision: number;
+      target: PublicationTargetSummary;
+    }
+  | {
+      state: 'fork_confirmation_required';
+      revision: number;
+      target: PublicationTargetSummary;
+      actor: string;
+      pushRepository: string;
+    }
+  | {
+      state: 'ready';
+      revision: number;
+      target: PublicationTargetSummary;
+      actor: string;
+      route: 'direct' | 'fork';
+      pushRepository: string;
+      willCreateFork: false;
+    }
+  | {
+      state: 'blocked';
+      revision: number;
+      target?: PublicationTargetSummary;
+      issues: PublicationIssue[];
+    };
+
+export interface PublicationFileSummary {
+  kind: 'record' | 'provenance';
+  path: string;
+  bytes: number;
   contentHash: string;
-  messages: number;
 }
 
-/**
- * The UI-safe batch plan — mirrors the daemon's `uiSafeBatchPlan` exactly: N
- * records under one branch/commit/PR, per-record metadata + totals, record bytes
- * EXCLUDED. `provenance` is per-record (in the sidecars), so unlike the single plan
- * there is no top-level provenance field.
- */
-export interface PublishBatchPlan {
-  branch: string;
-  targetBranch: string;
-  prTitle: string;
-  prBody: string;
-  commitMessage: string;
-  recordCount: number;
-  ghAvailable: boolean;
-  stagedFiles: string[];
-  commands: string[];
-  engine: Record<string, unknown>;
-  compareUrl: string | null;
-  totalRecordBytes: number;
-  records: PublishBatchRecord[];
+export interface PublicationEngine {
+  sanitizerPackageVersion: string;
+  rulesetVersion: string;
+  gitleaksVersion: string;
 }
 
-export interface PublishBatchStageResult {
-  staged: true;
-  branch: string;
-  stagedFiles: string[];
-  recordCount: number;
-}
-
-export interface PublishBatchSubmitResult {
-  opened: true;
-  branch: string;
-  receipt: {
+export interface PublicationPreview {
+  publicationRef: string;
+  expiresAt: string;
+  target: {
+    repositoryId: string;
+    revision: number;
+    upstream: string;
+    pushRepository: string;
+    route: 'direct' | 'fork';
+    forkProvision: 'none' | 'existing' | 'on-submit';
+    baseBranch: string;
+    baseCommitSha: string;
+    willCreateFork: boolean;
+  };
+  contribution: {
+    contractVersion: 1;
+    contentDigest: string;
     branch: string;
-    targetBranch: string;
+    commitMessage: string;
     prTitle: string;
-    compareUrl: string | null;
-    submittedAt: string;
+    prBody: string;
     recordCount: number;
+    totalBytes: number;
+    files: PublicationFileSummary[];
+    engine: PublicationEngine;
   };
 }
 
@@ -338,4 +297,89 @@ export interface ReplaySealResponse {
     findingCount: number;
     opaqueItemCount: number;
   };
+}
+
+export interface PublicationReceipt {
+  publicationRef: string;
+  targetRevision: number;
+  upstream: string;
+  pushRepository: string;
+  mode: 'direct' | 'fork';
+  baseBranch: string;
+  baseCommitSha: string;
+  branch: string;
+  commitSha: string;
+  prNumber: number;
+  prUrl: string;
+  recordCount: number;
+  contentDigest: string;
+  submittedAt: string;
+}
+
+export type PublicationErrorCode =
+  | 'invalid_target'
+  | 'target_not_configured'
+  | 'target_not_found'
+  | 'target_incompatible'
+  | 'target_changed'
+  | 'target_store_unavailable'
+  | 'github_client_missing'
+  | 'github_login_required'
+  | 'github_unavailable'
+  | 'permission_denied'
+  | 'fork_confirmation_required'
+  | 'fork_failed'
+  | 'review_not_found'
+  | 'GATE_LOCKED'
+  | 'precheck_refused'
+  | 'preview_not_found'
+  | 'preview_expired'
+  | 'preview_stale'
+  | 'publish_in_flight'
+  | 'workspace_unavailable'
+  | 'workspace_corrupt'
+  | 'branch_conflict'
+  | 'push_rejected'
+  | 'pr_create_failed';
+
+export type PublicationErrorPhase =
+  | 'target'
+  | 'preview'
+  | 'workspace'
+  | 'push'
+  | 'pull_request';
+
+export interface PublicationGateSummary {
+  blockingTotal: number;
+  blockingPending: number;
+  nonTextPending: number;
+  unlocked: boolean;
+}
+
+export interface PublicationRefusal {
+  reviewId: string;
+  sessionId: string;
+  blockingByRule: Record<string, number>;
+}
+
+export interface PublicationErrorBody {
+  code: PublicationErrorCode | 'transport_error';
+  phase: PublicationErrorPhase;
+  message: string;
+  retryable: boolean;
+  recovery?: string;
+  reviewId?: string;
+  gate?: PublicationGateSummary;
+  refusals?: PublicationRefusal[];
+}
+
+export type PublicationResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: PublicationErrorBody };
+
+export interface PublicationSubmitInput {
+  publicationRef: string;
+  targetRevision: number;
+  contentDigest: string;
+  confirmPublic: true;
 }

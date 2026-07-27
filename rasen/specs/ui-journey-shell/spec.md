@@ -62,26 +62,31 @@ Step ② SHALL merge the former blocking / non-text / Layer-3 tabs into a single
 
 ### Requirement: Dual exit cards with secondary export and receipt completion
 
-Step ④ SHALL present two equal exit cards. 出口①「公开数据集」SHALL be a readiness-state placeholder describing the publish flow with its wizard deferred to a later slice (no daemon publish call in this slice). 出口②「API 直投」SHALL preserve every existing direct-submit semantic (target/model/mode selection, cost estimate, dual acknowledgment, submit) and render its receipt as a summary card. A low-key secondary action 「仅导出脱敏文件」SHALL preserve the existing sanitized-export capability. The receipt view SHALL be step ④'s completion state (stepper all complete, badge `已完成`), not a fifth step.
+The exit step SHALL present two equal exit cards. Exit ① public dataset contribution SHALL consume the daemon's GitHub publication status and open the shared preview-to-confirmed-submit wizard when ready or fork confirmation is required. Exit ② API direct submit SHALL preserve every existing target/model/mode, estimate, acknowledgment, submission, and receipt semantic. The low-key sanitized-file-only export SHALL remain available. Either successful exit SHALL set the existing completion badge; successful exit ① SHALL keep its real GitHub PR receipt visible within the wizard rather than adding another journey step.
 
-#### Scenario: Both exits are presented as equals
+#### Scenario: Both exits remain equal
 
-- **WHEN** step ④ is reached
-- **THEN** 出口① and 出口② are shown as two equal cards, plus a low-key 「仅导出脱敏文件」 secondary action
+- **WHEN** the exit step is reached
+- **THEN** the public GitHub contribution and API direct-submit cards are shown as equals with sanitized-file export as a low-key secondary action
 
-#### Scenario: Exit-1 is a readiness placeholder in this slice
+#### Scenario: Exit-one status controls only exit one
 
-- **WHEN** the 出口① card is shown
-- **THEN** it describes the publish flow and does not invoke any daemon publish route (the wizard arrives in the publish slice)
+- **WHEN** GitHub publication is not currently usable
+- **THEN** exit ① shows status-specific recovery and is disabled while exit ② and gate-allowed sanitized export remain available
 
-#### Scenario: Direct-submit receipt completes the journey
+#### Scenario: GitHub receipt completes the journey
 
-- **WHEN** a 出口② submission succeeds
-- **THEN** the receipt is shown as a summary card and the badge shows `已完成`
+- **WHEN** exit ① returns a real publication receipt
+- **THEN** the receipt remains visible and the existing journey badge becomes completed without adding a fourth interactive step
+
+#### Scenario: Direct-submit receipt remains unchanged
+
+- **WHEN** exit ② succeeds
+- **THEN** its existing receipt summary and completion behavior remain unchanged by the publication redesign
 
 ### Requirement: Settings page with three-state theme toggle and daemon status
 
-The 设置 page SHALL provide a three-state theme toggle (light / dark / system) that drives the `.dark` class and persists the choice, replacing the follow-system-only bootstrap; the `system` option SHALL track `prefers-color-scheme`. It SHALL also show the daemon address + health and the list of targetable provider targets from the providers endpoint. The allowlisted vendor **presets** SHALL be shown without an edit control (they are fixed source-vendor targets). The page SHALL additionally let the user **add, edit, and delete custom providers** (name, `apiBaseUrl`, `models`, and an `apiFormat` chosen from openai / openai-response / anthropic / gemini) and **set or clear a provider API key** for a targetable provider. Key entry SHALL be write-only: the page SHALL show only a `configured` / `not configured` status per provider and SHALL NEVER display, prefill, or echo any stored key bytes, and SHALL disclose that a submitted key is stored encrypted at rest in a local user-scope file. The data-repository path remains startup-config only and out of scope for editing here.
+The Settings page SHALL preserve the light/dark/system theme toggle, daemon address/health, provider target management, and write-only provider-key behavior. It SHALL replace the read-only local data-repository block with one editable GitHub publication target. The target panel SHALL let the user enter canonical `owner/repo`, save/validate it, refresh readiness, and clear it. It SHALL render the exact daemon status plus available actor, canonical upstream, default branch/base, direct-or-fork push route/repository, target revision, compatibility contract/schemas/license, and curated issues, while never showing `TargetSummary.url`, a local path, token, remote URL/name, command, or raw external error.
 
 #### Scenario: Theme toggle switches and persists
 
@@ -96,31 +101,71 @@ The 设置 page SHALL provide a three-state theme toggle (light / dark / system)
 #### Scenario: Provider targets shown read-only
 
 - **WHEN** the settings page loads
-- **THEN** it lists the targetable provider targets from the providers endpoint without exposing any key material, and the vendor presets are shown without an edit control
+- **THEN** it lists the targetable provider targets without exposing key material, and vendor presets have no edit control
 
 #### Scenario: Custom provider can be added, edited, and removed
 
-- **WHEN** the user adds a custom provider with an apiFormat chosen from the four supported formats, then edits and deletes it
-- **THEN** each change calls the corresponding custom-provider route and the settings list updates to reflect it
+- **WHEN** the user adds a custom provider with one of the four supported API formats, then edits and deletes it
+- **THEN** each change calls the existing custom-provider route and the settings list updates
 
 #### Scenario: Key entry is write-only and never echoed
 
-- **WHEN** the user sets a key for a provider and later revisits the settings page
-- **THEN** the page shows only a configured status for that provider, never the key value, and offers set/clear actions with an at-rest-encryption storage disclosure
+- **WHEN** the user sets a provider key and later revisits Settings
+- **THEN** the page shows only configured/not-configured status, never the key value, and retains set/clear actions plus the at-rest-encryption disclosure
+
+#### Scenario: Canonical target can be configured
+
+- **WHEN** the user enters a valid canonical `owner/repo` and saves
+- **THEN** Settings sends only `{ repository }`, replaces the panel with the returned status/revision, and displays any ready, login, fork-confirmation, or blocked result without treating HTTP success as readiness
+
+#### Scenario: Invalid target remains editable
+
+- **WHEN** target configuration returns `invalid_target`
+- **THEN** the input remains available with the curated validation message and no local normalization, URL conversion, or extra authority field is submitted
+
+#### Scenario: Target status can be refreshed
+
+- **WHEN** the user requests a readiness refresh
+- **THEN** Settings calls `GET /api/publish` and replaces all displayed target facts with the returned server state
+
+#### Scenario: Target clear is explicit and local
+
+- **WHEN** the user confirms Clear target
+- **THEN** Settings sends `DELETE /api/publish/target` with JSON content type and no body, displays the returned newer unconfigured revision, and explains that existing remote forks, branches, and PRs are not deleted
+
+#### Scenario: Blocked target summary is optional
+
+- **WHEN** a blocked status omits `target`
+- **THEN** Settings shows only curated issues and an unavailable-details state, permits re-entry or clear, and does not promote its draft or prior target to configured truth
+
+#### Scenario: Legacy data-repository guidance is absent
+
+- **WHEN** Settings is inspected after the replacement
+- **THEN** it has no read-only data-repository status, `--data-repo` restart instruction, local-clone path, workspace control, or manual Git/`gh` guidance
 
 ### Requirement: Raw JSON demoted to advanced folds
 
-No raw JSON SHALL be the primary information carrier in the review UI. The sanitized-export preview and the direct-submit receipt SHALL present human-readable summaries as primary content, with the raw `SanitizedSession` / receipt JSON available only inside an expandable 「高级」 fold.
+No raw JSON SHALL be the primary information carrier in the review UI. Sanitized export and direct-submit receipt behavior SHALL remain human-summary-first with raw JSON only in an Advanced fold. GitHub publication preview and receipt SHALL use purpose-built target, PR, file-commitment, and audit summaries; they SHALL never render a generic raw preview/error object or exact contribution contents. Engine pins MAY use an Advanced fold.
 
 #### Scenario: Export preview leads with a summary
 
-- **WHEN** the sanitized export is previewed
-- **THEN** a human-readable summary is primary and the raw JSON is inside a collapsed Advanced fold
+- **WHEN** a sanitized export is previewed
+- **THEN** a human-readable summary is primary and raw session JSON remains inside a collapsed Advanced fold
 
-#### Scenario: Receipt leads with a summary
+#### Scenario: Direct-submit receipt leads with a summary
 
-- **WHEN** a submission receipt is shown
-- **THEN** key fields are summarized as a card and the raw receipt JSON is inside a collapsed Advanced fold
+- **WHEN** an exit ② receipt is shown
+- **THEN** key fields remain summarized as a card and raw receipt JSON remains inside a collapsed Advanced fold
+
+#### Scenario: Publication preview is purpose-built
+
+- **WHEN** a GitHub publication preview is shown
+- **THEN** target, PR, file commitment, digest, and expiry fields are rendered through labeled summaries rather than `JSON.stringify`
+
+#### Scenario: Publication receipt is safe by construction
+
+- **WHEN** a GitHub publication receipt is shown
+- **THEN** its audited public fields are rendered directly and no exact file contents, workspace, token, command, raw output, or arbitrary raw error object is available in the primary or advanced UI
 
 ### Requirement: One-time donation affirmation before the first exit action
 
@@ -146,3 +191,21 @@ Donation confirmation SHALL be a single dialog, raised the FIRST time the user t
 - **WHEN** the user changes a disposition after affirming and confirms the void warning
 - **THEN** the affirmation is voided, the exit re-locks, and the daemon disposition call still runs
 
+### Requirement: Publication surfaces are responsive and accessible
+
+The Settings target panel, publication status card, preview, public confirmation, errors, and receipt SHALL reuse the existing semantic tokens and component primitives. They SHALL remain usable at narrow and desktop widths, expose programmatic labels and status/error announcements, retain visible keyboard focus, and SHALL NOT communicate readiness or risk by color alone.
+
+#### Scenario: Narrow target and preview layout remains readable
+
+- **WHEN** Settings or the publication wizard is rendered at a narrow viewport
+- **THEN** controls stack, long repository/hash values wrap, file commitments scroll within their container, and no action or meaning is clipped
+
+#### Scenario: Keyboard can complete safe publication
+
+- **WHEN** a keyboard user saves a target, starts preview, reviews the result, opens the public confirmation, and confirms or cancels
+- **THEN** every control is reachable in logical order, focus remains visible, and the dialog traps/restores focus through the existing accessible primitive
+
+#### Scenario: Async and error state is announced
+
+- **WHEN** status, configure, preview, or submit enters progress, success, or error
+- **THEN** visible text and appropriate live/alert semantics communicate the change independently of color or icon

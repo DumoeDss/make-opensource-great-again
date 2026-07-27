@@ -274,6 +274,7 @@ describe('replay preparation daemon routes', () => {
         // 3. Seal
         const sealRes = await fetch(`${base}/api/reviews/${reviewId}/replay/seal`, {
           method: 'POST',
+          headers: { 'content-type': 'application/json' },
         });
         expect(sealRes.status).toBe(200);
         const sealed = (await sealRes.json()) as {
@@ -362,6 +363,7 @@ describe('replay preparation daemon routes', () => {
       if (!prepared.report.gate.unlocked) {
         const sealRes = await fetch(`${base}/api/reviews/${reviewId}/replay/seal`, {
           method: 'POST',
+          headers: { 'content-type': 'application/json' },
         });
         expect(sealRes.status).toBe(409);
         const body = (await sealRes.json()) as { code: string; gate: { unlocked: boolean } };

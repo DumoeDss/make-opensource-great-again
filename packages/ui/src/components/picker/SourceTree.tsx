@@ -13,6 +13,7 @@
  * `SessionPicker`; this component only renders and emits intents.
  */
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import type { ProjectAnnotation, SourceRef } from '../../api/types';
 import { cn } from '../../lib/cn';
@@ -105,6 +106,7 @@ export function SourceTree({
   onToggleSourceScope,
   onToggleProjectScope,
 }: SourceTreeProps): JSX.Element {
+  const { t } = useTranslation();
   return (
     <div
       className="flex w-72 shrink-0 flex-col rounded-lg border border-border bg-surface-1"
@@ -118,9 +120,9 @@ export function SourceTree({
             loading={loadingScope?.kind === 'all'}
             onChange={onToggleAll}
             testId="select-all-projects"
-            label="选择全部项目"
+            label={t('tree.selectAllProjects')}
           />
-          选择全部项目
+          {t('tree.selectAllProjects')}
         </label>
       </div>
 
@@ -143,7 +145,7 @@ export function SourceTree({
                   loading={loadingScope?.kind === 'source' && loadingScope.sourceId === source.id}
                   onChange={(checked) => onToggleSourceScope(source.id, checked)}
                   testId={`scope-source-${source.id}`}
-                  label={`选择 ${source.displayName} 下全部会话`}
+                  label={t('tree.selectSourceAll', { name: source.displayName })}
                 />
                 <button
                   type="button"
@@ -163,7 +165,7 @@ export function SourceTree({
               {isOpen && (
                 <ul className="ml-3 border-l border-border pl-1.5">
                   {!loaded && (
-                    <li className="px-2 py-1.5 text-xs text-text-subtle">加载中…</li>
+                    <li className="px-2 py-1.5 text-xs text-text-subtle">{t('tree.loading')}</li>
                   )}
                   {loaded?.projects.map((project) => {
                     const isActive =
@@ -185,7 +187,7 @@ export function SourceTree({
                             }
                             onChange={(checked) => onToggleProjectScope(source.id, project, checked)}
                             testId={`scope-project-${project.key}`}
-                            label={`选择 ${project.label} 下全部会话`}
+                            label={t('tree.selectProjectAll', { name: project.label })}
                           />
                           <button
                             type="button"
@@ -201,7 +203,7 @@ export function SourceTree({
                             {!project.recommended && (
                               <span
                                 className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning"
-                                title={`无公开远端（不推荐公开）：${project.recommendReason}`}
+                                title={t('tree.notRecommended', { reason: project.recommendReason })}
                                 data-testid={`not-recommended-${project.key}`}
                               />
                             )}
@@ -220,7 +222,7 @@ export function SourceTree({
                   })}
                   {loaded && loaded.projects.length === 0 && (
                     <li className="px-2 py-1.5 text-xs text-text-subtle">
-                      无项目{showAll ? '。' : '（试试「显示全部项目」）。'}
+                      {showAll ? t('tree.noProjects') : t('tree.noProjectsHint')}
                     </li>
                   )}
                 </ul>
@@ -229,7 +231,7 @@ export function SourceTree({
           );
         })}
         {sources.length === 0 && (
-          <p className="px-2 py-3 text-center text-xs text-text-subtle">没有可用来源。</p>
+          <p className="px-2 py-3 text-center text-xs text-text-subtle">{t('tree.noSources')}</p>
         )}
       </div>
 
@@ -243,11 +245,11 @@ export function SourceTree({
             data-testid="show-all-toggle"
             className="accent-primary"
           />
-          显示全部项目（含无公开远端）
+          {t('tree.showAll')}
         </label>
         {!showAll && (
           <p className="mt-1 text-[11px] leading-snug text-text-subtle">
-            默认仅显示有公开 git 远端的项目（推荐）。私有 / 未推送项目在你显式开启前隐藏。
+            {t('tree.showAllHint')}
           </p>
         )}
       </div>

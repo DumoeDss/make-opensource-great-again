@@ -1,30 +1,42 @@
 /**
  * SettingsPage — the 设置 destination: a three-state theme toggle
  * (light / dark / system) driving `lib/theme.ts`, the daemon address + health
- * (`useDaemonStatus`), the read-only data-repo status, and the INTERACTIVE
- * provider surface: the allowlisted vendor presets (read-only) plus custom
- * providers (add / edit / delete) and per-provider API-key set/clear. Key entry
- * is write-only — the page shows only a `configured` status, never a key value,
- * and discloses that a submitted key is stored encrypted at rest.
+ * (`useDaemonStatus`), one server-owned GitHub publication target, and the
+ * interactive provider surface. Provider key entry remains write-only: the page
+ * shows only configured state and never reads a stored value back.
  */
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { ApiClient } from '../api/client';
 import { API_FORMATS, type ApiFormat, type KeyStatusMap, type ProviderTarget } from '../api/types';
 import { cn } from '../lib/cn';
+import type { Language } from '../lib/i18n';
+import { getLanguage, setLanguage } from '../lib/lang';
 import { getTheme, setTheme, subscribe, type ThemeChoice } from '../lib/theme';
 import { useDaemonStatus } from '../lib/useDaemonStatus';
-import { usePreflight } from '../lib/usePreflight';
+import { usePublication } from '../lib/usePublication';
+import { PublicationStatusView } from './publication/PublicationStatusView';
+import { Button } from './ui/button';
+import { ConfirmDialog } from './ui/confirm-dialog';
+import { Input } from './ui/input';
 
 interface SettingsPageProps {
   client: ApiClient;
 }
 
 const THEME_OPTIONS: Array<{ id: ThemeChoice; label: string; icon: typeof Sun }> = [
-  { id: 'light', label: '浅色', icon: Sun },
-  { id: 'dark', label: '深色', icon: Moon },
-  { id: 'system', label: '跟随系统', icon: Monitor },
+  { id: 'light', label: 'settings.theme.light', icon: Sun },
+  { id: 'dark', label: 'settings.theme.dark', icon: Moon },
+  { id: 'system', label: 'settings.theme.system', icon: Monitor },
+];
+
+const LANG_OPTIONS: Array<{ id: Language; label: string }> = [
+  { id: 'zh', label: '中文' },
+  { id: 'ja', label: '日本語' },
+  { id: 'en', label: 'English' },
+  { id: 'ko', label: '한국어' },
 ];
 
 interface ProviderFormState {
@@ -43,8 +55,23 @@ const EMPTY_FORM: ProviderFormState = {
   apiFormat: 'openai',
 };
 
+function validRepositorySlug(value: string): boolean {
+  if (
+    value.length < 3 ||
+    value.length > 140 ||
+    value.trim() !== value ||
+    !/^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(value)
+  ) {
+    return false;
+  }
+  const [owner, repo] = value.split('/');
+  return owner !== '.' && owner !== '..' && repo !== '.' && repo !== '..';
+}
+
 export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
+  const { t, i18n } = useTranslation();
   const [theme, setThemeState] = useState<ThemeChoice>(getTheme());
+  const [lang, setLangState] = useState<Language>(getLanguage());
   const [providers, setProviders] = useState<ProviderTarget[]>([]);
   const [customIds, setCustomIds] = useState<Set<string>>(new Set());
   const [keyStatus, setKeyStatus] = useState<KeyStatusMap>({});
@@ -56,11 +83,22 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
   const [form, setForm] = useState<ProviderFormState>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [repositoryDraft, setRepositoryDraft] = useState('');
+  const [repositoryFeedback, setRepositoryFeedback] = useState<string | null>(null);
+  const [clearTargetOpen, setClearTargetOpen] = useState(false);
 
   const daemon = useDaemonStatus(client);
-  const { flags } = usePreflight(client);
+  const publication = usePublication(client);
 
   useEffect(() => subscribe(setThemeState), []);
+
+  useEffect(() => {
+    const handler = (lng: string): void => setLangState(lng as Language);
+    i18n.on('languageChanged', handler);
+    return () => {
+      i18n.off('languageChanged', handler);
+    };
+  }, [i18n]);
 
   const refresh = useCallback(async () => {
     const [all, custom, status] = await Promise.all([
@@ -184,12 +222,46 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
     }
   };
 
+  const savePublicationTarget = async (): Promise<void> => {
+    setRepositoryFeedback(null);
+    if (!validRepositorySlug(repositoryDraft)) {
+      setRepositoryFeedback(
+        'Enter one canonical repository as owner/repo. URLs, spaces, and local paths are not accepted.',
+      );
+      return;
+    }
+    const next = await publication.configure(repositoryDraft);
+    if (next) {
+      setRepositoryFeedback(
+        next.state === 'ready' || next.state === 'fork_confirmation_required'
+          ? 'Target saved and readiness refreshed.'
+          : 'Target saved. Review the daemon status below before publishing.',
+      );
+    }
+  };
+
+  const refreshPublicationTarget = async (): Promise<void> => {
+    setRepositoryFeedback(null);
+    const next = await publication.refresh();
+    if (next) setRepositoryFeedback('Publication status refreshed from the daemon.');
+  };
+
+  const clearPublicationTarget = async (): Promise<void> => {
+    const next = await publication.clear();
+    if (next) {
+      setRepositoryDraft('');
+      setRepositoryFeedback(
+        'Local target configuration and unsubmitted previews were cleared. Existing remote forks, branches, and pull requests were not deleted.',
+      );
+    }
+  };
+
   return (
     <div className="mx-auto max-w-2xl space-y-6" data-testid="settings-page">
-      <h1 className="text-xl font-semibold">设置</h1>
+      <h1 className="text-xl font-semibold">{t('settings.heading')}</h1>
 
       <section className="space-y-2">
-        <h2 className="text-sm font-medium text-text-muted">深浅模式</h2>
+        <h2 className="text-sm font-medium text-text-muted">{t('settings.theme.label')}</h2>
         <div className="inline-flex rounded-md border border-border bg-surface-1 p-1" data-testid="theme-toggle">
           {THEME_OPTIONS.map((opt) => {
             const Icon = opt.icon;
@@ -209,6 +281,32 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
                 )}
               >
                 <Icon className="h-4 w-4" strokeWidth={1.5} />
+                {t(opt.label)}
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="space-y-2">
+        <h2 className="text-sm font-medium text-text-muted">{t('settings.language.label')}</h2>
+        <div className="inline-flex rounded-md border border-border bg-surface-1 p-1" data-testid="lang-toggle">
+          {LANG_OPTIONS.map((opt) => {
+            const active = lang === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setLanguage(opt.id)}
+                aria-pressed={active}
+                data-testid={`lang-${opt.id}`}
+                className={cn(
+                  'flex items-center gap-1.5 rounded px-3 py-1.5 text-sm transition-colors',
+                  active
+                    ? 'bg-surface-2 text-foreground'
+                    : 'text-text-muted hover:text-foreground',
+                )}
+              >
                 {opt.label}
               </button>
             );
@@ -217,41 +315,139 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
       </section>
 
       <section className="space-y-2">
-        <h2 className="text-sm font-medium text-text-muted">daemon 状态</h2>
+        <h2 className="text-sm font-medium text-text-muted">{t('settings.daemon.heading')}</h2>
         <div className="rounded-md border border-border bg-surface-1 p-3 text-sm">
           <div className="flex items-center justify-between">
-            <span className="text-text-muted">地址</span>
+            <span className="text-text-muted">{t('settings.daemon.address')}</span>
             <span className="font-mono" data-testid="settings-daemon-address">{daemon.address}</span>
           </div>
           <div className="mt-1 flex items-center justify-between">
-            <span className="text-text-muted">健康</span>
+            <span className="text-text-muted">{t('settings.daemon.health')}</span>
             <span data-testid="settings-daemon-health">
               {daemon.status === 'ok'
-                ? `已连接 (${daemon.name ?? 'daemon'} ${daemon.version ?? ''})`
+                ? t('settings.daemon.healthOk', { name: daemon.name ?? 'daemon', version: daemon.version ?? '' })
                 : daemon.status === 'probing'
-                  ? '连接中…'
-                  : '不可达'}
+                  ? t('settings.daemon.healthProbing')
+                  : t('settings.daemon.healthUnreachable')}
             </span>
           </div>
         </div>
       </section>
 
-      <section className="space-y-2">
-        <h2 className="text-sm font-medium text-text-muted">数据仓库（出口①，只读）</h2>
-        <div className="rounded-md border border-border bg-surface-1 p-3 text-sm" data-testid="settings-data-repo">
-          <div className="flex items-center justify-between">
-            <span className="text-text-muted">状态</span>
-            <span data-testid="settings-data-repo-status">
-              {flags == null ? '检测中…' : flags.dataRepoConfigured ? '已配置' : '未配置'}
-            </span>
+      <section className="space-y-2" aria-labelledby="publication-target-heading">
+        <h2 id="publication-target-heading" className="text-sm font-medium text-text-muted">
+          GitHub publication target
+        </h2>
+        <div
+          className="min-w-0 space-y-4 rounded-md border border-border bg-surface-1 p-3 text-sm"
+          data-testid="settings-publication-target"
+        >
+          <div className="space-y-1.5">
+            <label htmlFor="publication-repository" className="font-medium">
+              Canonical repository
+            </label>
+            <Input
+              id="publication-repository"
+              value={repositoryDraft}
+              onChange={(event) => {
+                setRepositoryDraft(event.target.value);
+                setRepositoryFeedback(null);
+              }}
+              placeholder="owner/repo"
+              autoComplete="off"
+              spellCheck={false}
+              aria-describedby="publication-repository-help"
+              aria-invalid={
+                repositoryDraft.length > 0 && !validRepositorySlug(repositoryDraft)
+              }
+              disabled={publication.pendingMutation !== null}
+              className="font-mono"
+            />
+            <p id="publication-repository-help" className="text-xs text-text-subtle">
+              Enter one public GitHub repository as owner/repo. The daemon validates
+              compatibility and decides the direct or fork route.
+            </p>
           </div>
-          <p className="mt-2 text-xs text-text-subtle">
-            数据仓库路径是服务端信任配置，仅可在启动时以{' '}
-            <code className="font-mono">--data-repo &lt;路径&gt;</code>{' '}
-            指定，不经界面填写、不经 HTTP 回显。修改请以该参数重启 daemon。
-          </p>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void savePublicationTarget()}
+              disabled={
+                publication.pendingMutation !== null ||
+                !validRepositorySlug(repositoryDraft)
+              }
+            >
+              {publication.pendingMutation === 'configure'
+                ? 'Saving…'
+                : 'Save and validate'}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => void refreshPublicationTarget()}
+              disabled={
+                publication.pendingMutation !== null ||
+                publication.loadState === 'loading'
+              }
+            >
+              {publication.loadState === 'loading' ? 'Refreshing…' : 'Refresh status'}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => setClearTargetOpen(true)}
+              disabled={
+                publication.pendingMutation !== null ||
+                publication.status?.state === 'unconfigured'
+              }
+            >
+              Clear target
+            </Button>
+          </div>
+
+          <div aria-live="polite" data-testid="publication-status-live">
+            {publication.loadState === 'loading' && (
+              <p className="text-text-muted">Loading publication status from the daemon…</p>
+            )}
+            {publication.status && (
+              <PublicationStatusView status={publication.status} detail="full" />
+            )}
+            {repositoryFeedback && (
+              <p className="mt-2 break-words text-sm text-text-muted">
+                {repositoryFeedback}
+              </p>
+            )}
+          </div>
+
+          {publication.error && (
+            <div
+              role="alert"
+              className="break-words rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive"
+              data-testid="publication-target-error"
+            >
+              <p>{publication.error.message}</p>
+              {publication.error.recovery && (
+                <p className="mt-1">{publication.error.recovery}</p>
+              )}
+            </div>
+          )}
         </div>
       </section>
+
+      <ConfirmDialog
+        open={clearTargetOpen}
+        onOpenChange={setClearTargetOpen}
+        title="Clear GitHub publication target?"
+        description="This clears local target configuration and invalidates unsubmitted previews. Existing remote forks, branches, and pull requests are not deleted."
+        confirmLabel={publication.pendingMutation === 'clear' ? 'Clearing…' : 'Clear target'}
+        cancelLabel="Cancel"
+        onConfirm={() => void clearPublicationTarget()}
+        testid="clear-publication-target"
+      />
 
       {error && (
         <div
@@ -263,10 +459,9 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
       )}
 
       <section className="space-y-2">
-        <h2 className="text-sm font-medium text-text-muted">直投目标与密钥</h2>
+        <h2 className="text-sm font-medium text-text-muted">{t('providers.heading')}</h2>
         <p className="text-xs text-text-subtle" data-testid="key-storage-disclosure">
-          预置厂商为固定的开源模型源，不可编辑。API 密钥仅用于出站请求认证，写入后加密存储于本地用户目录
-          （<code className="font-mono">~/.mosga/provider-keys.json</code>，AES-256-GCM），永不回显、永不写入任何回执或日志。
+          {t('providers.disclosurePrefix')}<code className="font-mono">{t('providers.disclosureCode')}</code>{t('providers.disclosureSuffix')}
         </p>
         <ul className="divide-y divide-border rounded-md border border-border" data-testid="provider-list">
           {providers.map((p) => {
@@ -280,14 +475,14 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
                   <span>
                     <b>{p.name}</b>
                     <span className="ml-2 text-xs text-text-subtle">{p.apiFormat}</span>
-                    {isCustom && <span className="ml-2 text-xs text-accent">自定义</span>}
+                    {isCustom && <span className="ml-2 text-xs text-accent">{t('providers.custom')}</span>}
                   </span>
-                  <span className="text-xs text-text-subtle">{p.models.length} 个模型</span>
+                  <span className="text-xs text-text-subtle">{t('providers.modelCount', { count: p.models.length })}</span>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs text-text-muted" data-testid={`key-status-${p.id}`}>
-                    {configured ? '密钥已配置' : '密钥未配置'}
+                    {configured ? t('providers.keyConfigured') : t('providers.keyNotConfigured')}
                   </span>
                   {showKeyInput ? (
                     <>
@@ -295,7 +490,7 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
                         type="password"
                         value={keyInputs[p.id] ?? ''}
                         onChange={(e) => setKeyInputs((prev) => ({ ...prev, [p.id]: e.target.value }))}
-                        placeholder={isReplacing ? '输入新的 API 密钥' : '输入 API 密钥'}
+                        placeholder={isReplacing ? t('providers.keyPlaceholderNew') : t('providers.keyPlaceholder')}
                         data-testid={`key-input-${p.id}`}
                         className="min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 py-1 text-xs"
                       />
@@ -305,7 +500,7 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
                         data-testid={`key-set-${p.id}`}
                         className="rounded border border-border px-2 py-1 text-xs hover:bg-surface-2"
                       >
-                        保存密钥
+                        {t('providers.saveKey')}
                       </button>
                       {isReplacing && (
                         <button
@@ -314,7 +509,7 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
                           data-testid={`key-replace-cancel-${p.id}`}
                           className="rounded border border-border px-2 py-1 text-xs hover:bg-surface-2"
                         >
-                          取消
+                          {t('providers.cancel')}
                         </button>
                       )}
                     </>
@@ -326,7 +521,7 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
                         data-testid={`key-replace-${p.id}`}
                         className="rounded border border-border px-2 py-1 text-xs hover:bg-surface-2"
                       >
-                        更换密钥
+                        {t('providers.replaceKey')}
                       </button>
                       <button
                         type="button"
@@ -334,7 +529,7 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
                         data-testid={`key-clear-${p.id}`}
                         className="rounded border border-border px-2 py-1 text-xs hover:bg-surface-2"
                       >
-                        清除密钥
+                        {t('providers.clearKey')}
                       </button>
                     </>
                   )}
@@ -346,7 +541,7 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
                         data-testid={`provider-edit-${p.id}`}
                         className="rounded border border-border px-2 py-1 text-xs hover:bg-surface-2"
                       >
-                        编辑
+                        {t('providers.edit')}
                       </button>
                       <button
                         type="button"
@@ -354,7 +549,7 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
                         data-testid={`provider-delete-${p.id}`}
                         className="rounded border border-border px-2 py-1 text-xs hover:bg-surface-2"
                       >
-                        删除
+                        {t('providers.delete')}
                       </button>
                     </>
                   )}
@@ -363,14 +558,14 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
             );
           })}
           {providers.length === 0 && (
-            <li className="px-3 py-4 text-center text-sm text-text-subtle">未配置直投目标。</li>
+            <li className="px-3 py-4 text-center text-sm text-text-subtle">{t('providers.empty')}</li>
           )}
         </ul>
       </section>
 
       <section className="space-y-2">
         <h2 className="text-sm font-medium text-text-muted">
-          {editingId ? `编辑自定义 Provider：${editingId}` : '添加自定义 Provider'}
+          {editingId ? t('settings.customProvider.editing', { id: editingId }) : t('settings.customProvider.add')}
         </h2>
         <div
           className="space-y-2 rounded-md border border-border bg-surface-1 p-3 text-sm"
@@ -381,14 +576,14 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
               value={form.id}
               onChange={(e) => setForm((f) => ({ ...f, id: e.target.value }))}
               disabled={editingId != null}
-              placeholder="id（唯一标识）"
+              placeholder={t('settings.customProvider.idPlaceholder')}
               data-testid="custom-provider-id"
               className="rounded border border-border bg-surface-1 px-2 py-1 text-xs disabled:opacity-60"
             />
             <input
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              placeholder="显示名称"
+              placeholder={t('settings.customProvider.namePlaceholder')}
               data-testid="custom-provider-name"
               className="rounded border border-border bg-surface-1 px-2 py-1 text-xs"
             />
@@ -396,14 +591,14 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
           <input
             value={form.apiBaseUrl}
             onChange={(e) => setForm((f) => ({ ...f, apiBaseUrl: e.target.value }))}
-            placeholder="apiBaseUrl（https://…）"
+            placeholder={t('settings.customProvider.urlPlaceholder')}
             data-testid="custom-provider-base-url"
             className="w-full rounded border border-border bg-surface-1 px-2 py-1 text-xs"
           />
           <input
             value={form.models}
             onChange={(e) => setForm((f) => ({ ...f, models: e.target.value }))}
-            placeholder="模型（逗号分隔）"
+            placeholder={t('settings.customProvider.modelsPlaceholder')}
             data-testid="custom-provider-models"
             className="w-full rounded border border-border bg-surface-1 px-2 py-1 text-xs"
           />
@@ -426,7 +621,7 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
               data-testid="custom-provider-submit"
               className="rounded border border-border px-3 py-1 text-xs hover:bg-surface-2"
             >
-              {editingId ? '更新' : '添加'}
+              {editingId ? t('providers.update') : t('providers.add')}
             </button>
             {editingId && (
               <button
@@ -435,7 +630,7 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
                 data-testid="custom-provider-cancel"
                 className="rounded border border-border px-3 py-1 text-xs hover:bg-surface-2"
               >
-                取消
+                {t('providers.cancel')}
               </button>
             )}
           </div>

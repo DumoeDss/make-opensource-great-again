@@ -84,9 +84,15 @@ describe('provider-management routes', () => {
       const afterUpdate = await jsonRes<{ provider: { name: string } }>(updated);
       expect(afterUpdate.provider.name).toBe('Renamed');
 
-      const del = await fetch(`${base}/api/custom-providers/my-llm`, { method: 'DELETE' });
+      const del = await fetch(`${base}/api/custom-providers/my-llm`, {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+      });
       expect(del.status).toBe(200);
-      const del2 = await fetch(`${base}/api/custom-providers/my-llm`, { method: 'DELETE' });
+      const del2 = await fetch(`${base}/api/custom-providers/my-llm`, {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+      });
       expect(del2.status).toBe(404); // already gone
     });
   });
@@ -177,7 +183,10 @@ describe('provider-management routes', () => {
       expect(status.status.deepseek).toEqual({ configured: true });
 
       // Delete clears it → configured:false.
-      const delRes = await fetch(`${base}/api/provider-keys/deepseek`, { method: 'DELETE' });
+      const delRes = await fetch(`${base}/api/provider-keys/deepseek`, {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+      });
       expect(delRes.status).toBe(200);
       const after = await jsonRes<{ status: Record<string, unknown> }>(
         await fetch(`${base}/api/provider-keys`),

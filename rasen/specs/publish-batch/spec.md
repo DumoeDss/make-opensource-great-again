@@ -5,81 +5,81 @@ TBD - created by archiving change mosga-v04-batch-publish-core. Update Purpose a
 ## Requirements
 ### Requirement: Batch contribution plan with aggregated mandatory pre-check
 
-The publisher SHALL provide an async batch plan that exports N stamped sessions and runs the MANDATORY pre-check on EVERY record's exact bytes, aggregating refusals across all sessions (no fail-fast) into a typed error carrying per-session blocking findings. On a clean pass it SHALL return one plan holding all N records, ONE branch, one commit message, and one batch PR title/body containing a per-session summary table plus the shared engine/provenance stamp. All sessions in a batch MUST share the same `contributorAlias`; a mismatch SHALL be refused as a configuration error, never silently resolved.
+The publisher SHALL compile N stamped sessions through the same pure `compileContributionBundle` operation used for one session. It SHALL export every record and run the MANDATORY pre-check on EVERY record's exact final file bytes with no fail-fast. A refusal SHALL aggregate every refused session into a typed error carrying deterministic rule-count summaries only. On a clean pass the compiler SHALL return one bundle with N records, N record/provenance file pairs, one content-bound branch, one commit message, and one PR title/body containing canonical per-session summaries plus the engine/provenance and attestation contract. All sessions MUST share the same exact `contributorAlias`; a mismatch SHALL be refused as a configuration error.
 
 #### Scenario: Refusals aggregate across sessions
 
-- **WHEN** a batch of 3 sessions is planned and 2 of them still carry surviving blocking findings
-- **THEN** the plan throws a batch refusal naming BOTH refused sessions with their blocking findings, and nothing is planned, written, or staged
+- **WHEN** a collection of three sessions is compiled and two still carry surviving blocking findings
+- **THEN** the compiler throws one bundle refusal naming both refused sessions with rule-aggregated counts, and no partial bundle or side effect is produced
 
-#### Scenario: Clean batch plans one branch with N records
+#### Scenario: Clean collection returns one canonical bundle
 
-- **WHEN** every session in the batch passes the pre-check
-- **THEN** the plan carries N records (recordCount = N), one branch, one commit message, and a PR body whose summary table has one row per session
+- **WHEN** every session passes the exact-byte pre-check
+- **THEN** the result carries N canonical record summaries and file pairs, `recordCount = N`, one branch, one commit message, and a PR body with one summary row per session
 
 #### Scenario: Alias mismatch is refused
 
-- **WHEN** the batch contains sessions with differing `contributorAlias` values
-- **THEN** the plan is refused as a configuration error naming the conflict
+- **WHEN** the collection contains sessions with differing exact `contributorAlias` values
+- **THEN** compilation is refused as a configuration error rather than silently selecting one alias
 
 ### Requirement: Deterministic batch branch naming
 
-A batch of one session SHALL degrade to the existing single-session plan semantics (same deterministic branch, title, and body). A batch of more than one SHALL use `contrib/<alias>/batch-<hash8>` where `hash8` is derived from the sha256 of the sorted sessionId list, so the same selection always maps to the same branch and a retry surfaces the existing stale-branch residue semantics.
+A contribution of one session SHALL use `contrib/<alias>/<sessionId>-<digest8>`, and a contribution of more than one SHALL use `contrib/<alias>/batch-<digest8>`, where `digest8` is derived from the canonical full-bundle content digest. Canonical session/file ordering SHALL make the entire bundle, not only its branch, identical for the same logical session set in any input order. Any changed final file byte or path SHALL change the digest and branch suffix.
 
-#### Scenario: Same selection maps to the same branch
+#### Scenario: Same selection maps to the same complete bundle
 
-- **WHEN** the same set of sessions is planned twice (any order)
-- **THEN** both plans name the identical `contrib/<alias>/batch-<hash8>` branch
+- **WHEN** the same set of sessions is compiled twice in any order with the same explicit options
+- **THEN** both results deep-equal and name the identical content-bound branch
 
-#### Scenario: Single-item batch degrades to the single-session plan
+#### Scenario: Single-item collection uses unified semantics
 
-- **WHEN** a batch of exactly one session is planned
-- **THEN** the branch, title, and body equal the single-session contribution plan's
+- **WHEN** exactly one session is compiled
+- **THEN** it has the same bundle shape, safety checks, file commitments, and downstream interface as a multi-session contribution
 
-### Requirement: Batch stage and submit as one commit and one PR
+#### Scenario: Same IDs with changed bytes do not reuse a branch
 
-Batch staging SHALL write all N records + provenance sidecars + the PR body file into the clone, create the batch branch once, and commit ALL staged files in ONE commit. Batch submit SHALL push the branch once and open ONE PR via `gh`. Both SHALL run through the async command runner only (no sync batch variants); a rejected push SHALL be distinguishable from a failed PR open.
-
-#### Scenario: Stage writes N record pairs under one commit
-
-- **WHEN** a clean batch plan of N sessions is staged
-- **THEN** N records and N sidecars are written, and exactly one `git checkout -b` + `git add` + `git commit` sequence runs
-
-#### Scenario: Submit pushes once and opens one PR
-
-- **WHEN** a staged batch is submitted with `gh` authenticated
-- **THEN** exactly one `git push` and one `gh pr create` run, and a rejected push is reported distinctly from a failed PR open
+- **WHEN** a selected session set keeps the same IDs but any final published file content changes
+- **THEN** the aggregate digest and branch suffix change
 
 ### Requirement: Daemon batch publish routes with per-review attribution
 
-The daemon SHALL expose `POST /api/publish/batch/plan|stage|submit` accepting `{ reviewIds: string[] }` (validated: 1–500 items, deduplicated — 500 aligns with the daemon review capacity). Every review SHALL be checked individually and failures SHALL name the offending review: an unknown review yields 404 with its `reviewId`; a locked gate yields 409 `GATE_LOCKED` with the `reviewId` and gate. A pre-check refusal SHALL yield 422 `precheck_refused` with `blockingBySession` entries of `{ reviewId, sessionId, blockingByRule }` — rule-aggregated counts only, never raw matched values. All other error codes SHALL reuse the existing publish taxonomy unchanged.
+The daemon SHALL expose one `POST /api/publish/preview` route accepting `{ reviewIds: string[] }` for both single and batch publication and one target-bound submit route consuming the resulting sealed publication. `reviewIds` SHALL contain 1–500 input entries and be deterministically deduplicated. Every review SHALL be checked individually: an unknown review yields `review_not_found` with its `reviewId`; a locked gate yields `GATE_LOCKED` with its `reviewId` and gate; a pre-check refusal yields `precheck_refused` with per-review/session rule-aggregated counts only. The daemon SHALL NOT retain separate per-review or `/batch/plan|stage|submit` publication routes.
 
-#### Scenario: Locked review is named in the batch refusal
+#### Scenario: One review uses the collection route
 
-- **WHEN** a batch stage names three reviews and one gate is locked
-- **THEN** the response is 409 `GATE_LOCKED` carrying that review's `reviewId`, and no git mutation ran
+- **WHEN** preview receives one review ID
+- **THEN** it uses the same collection compiler, sealed preview, response type, and submit flow as a larger selection
 
-#### Scenario: Batch pre-check refusal is aggregated per session
+#### Scenario: Locked review is named
 
-- **WHEN** the batch plan's pre-check refuses two sessions
-- **THEN** the 422 body's `blockingBySession` names both, each with rule-aggregated counts only
+- **WHEN** a multi-review preview contains a review whose gate is locked
+- **THEN** the response is `GATE_LOCKED` carrying that review’s ID and no publication mutation occurs
 
-#### Scenario: Oversized or empty batches are rejected
+#### Scenario: Aggregated pre-check refusal is safe
 
-- **WHEN** a batch request names zero or more than 500 reviewIds
-- **THEN** the request is rejected as invalid before any review or git work runs
+- **WHEN** exact bytes for multiple selected reviews are refused
+- **THEN** the response attributes each refusal by review/session and rule counts without raw matched values or record contents
+
+#### Scenario: Legacy batch routes are absent
+
+- **WHEN** a client calls `/api/publish/batch/plan`, `/stage`, `/submit`, or a per-review publish plan/stage/submit route
+- **THEN** the daemon returns route-not-found and does not invoke publication
 
 ### Requirement: Batch routes share the single-flight mutex and UI-safe plan discipline
 
-The batch routes SHALL share the SAME in-flight mutex as the per-review publish routes (a concurrent publish of either kind is rejected with `publish_in_flight`), and batch stage state SHALL be keyed by the sorted deduplicated reviewIds. The batch plan response SHALL be the UI-safe subset only: per-record `{ sessionId, recordPath, provenancePath, recordBytes, contentHash, messages }`, totals, and the derived `compareUrl` — record bytes are never returned.
+Preview SHALL be read-only and SHALL return only the UI-safe publication target, PR metadata, engine identity, totals, and per-file path/byte/hash summaries. All N=1/N>1 submits SHALL share the same publication single-flight lock and durable journal/receipt discipline; a concurrent submit SHALL return `publish_in_flight`. Exact record/provenance contents, local paths, commands, and raw external output SHALL never be returned.
 
-#### Scenario: Batch and single publishes exclude each other
+#### Scenario: Unified preview returns no exact bytes
 
-- **WHEN** a batch stage is in flight and a per-review stage (or another batch) arrives
-- **THEN** the second request is rejected with `publish_in_flight`
+- **WHEN** a multi-review preview succeeds
+- **THEN** it returns record count, totals, digest, PR/target facts, and file commitments with no file contents
 
-#### Scenario: Batch plan returns no record bytes
+#### Scenario: Single and batch submits exclude each other
 
-- **WHEN** a batch plan succeeds
-- **THEN** the response enumerates per-record metadata (path, byte count, content hash, message count) and the compare URL, with no record content field
+- **WHEN** any confirmed publication submit is in flight and another N=1 or N>1 submit arrives
+- **THEN** the second returns `publish_in_flight`
 
+#### Scenario: Dead-owner recovery cannot remove a replacement holder
+
+- **WHEN** two processes observe the same dead acquisition claim, one process recovers it and acquires a new live claim, and the other stale observer resumes
+- **THEN** the stale observer cannot remove the new claim, a third submit remains blocked, and a fresh process can recover only after the live owner exits

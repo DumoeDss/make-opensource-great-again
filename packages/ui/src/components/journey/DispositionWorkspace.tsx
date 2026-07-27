@@ -8,6 +8,7 @@
  */
 import { ArrowRight, BarChart3, CheckCircle2, Image, type LucideIcon, KeyRound, SlidersHorizontal, Wand2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type {
   Disposition,
@@ -82,6 +83,7 @@ export function DispositionWorkspace({
   cleared,
   onProceedToExit,
 }: DispositionWorkspaceProps): JSX.Element {
+  const { t } = useTranslation();
   // Secrets = blocking secrets (excl. meta); custom = blocking custom + meta
   // findings (engine/meta hits have no editable text but must be clearable).
   const secretsFindings = useMemo(
@@ -97,12 +99,12 @@ export function DispositionWorkspace({
   const nonTextPending = nonTextItems.filter((n) => n.disposition === 'pending').length;
 
   const groups: Array<{ id: GroupId; label: string; count: number; gates: boolean }> = [
-    { id: 'secrets', label: '密钥命中', count: pending(secretsFindings), gates: true },
-    { id: 'custom', label: '自定义规则', count: pending(customFindings), gates: true },
-    { id: 'nontext', label: '图像/附件', count: nonTextPending, gates: true },
+    { id: 'secrets', label: 'disposition.groupSecrets', count: pending(secretsFindings), gates: true },
+    { id: 'custom', label: 'disposition.groupCustom', count: pending(customFindings), gates: true },
+    { id: 'nontext', label: 'disposition.groupNonText', count: nonTextPending, gates: true },
     {
       id: 'normalization',
-      label: '归一化统计',
+      label: 'disposition.groupNormalization',
       count: report.layerSummary.normalization.total,
       gates: false,
     },
@@ -130,10 +132,10 @@ export function DispositionWorkspace({
         >
           <span className="flex items-center gap-2 text-sm font-medium text-success">
             <CheckCircle2 className="h-4 w-4" strokeWidth={1.5} />
-            该会话所有命中已处置完毕。
+            {t('disposition.clearedMessage')}
           </span>
           <Button type="button" onClick={onProceedToExit} data-testid="goto-exit">
-            前往选择出口
+            {t('disposition.proceedToExit')}
             <ArrowRight className="h-4 w-4" strokeWidth={1.5} />
           </Button>
         </div>
@@ -160,7 +162,7 @@ export function DispositionWorkspace({
             >
               <span className="flex items-center gap-2">
                 <Icon className="h-4 w-4 shrink-0" strokeWidth={1.5} />
-                {g.label}
+                {t(g.label)}
               </span>
               <span
                 className={cn(
@@ -187,10 +189,10 @@ export function DispositionWorkspace({
           >
             <div className="min-w-0">
               <p className="text-sm font-medium text-foreground">
-                该会话还有 {cleanableCount} 处命中可按规则一键替换
+                {t('disposition.cleanAllTitle', { count: cleanableCount })}
               </p>
               <p className="mt-0.5 text-xs text-text-muted">
-                密钥 / 自定义命中将替换为稳定化名；引擎降级与图像附件仍需你人工确认。
+                {t('disposition.cleanAllHint')}
               </p>
             </div>
             <Button
@@ -202,7 +204,7 @@ export function DispositionWorkspace({
               className="shrink-0"
             >
               <Wand2 className="h-4 w-4" strokeWidth={1.5} />
-              一键全部替换为化名
+              {t('disposition.cleanAllButton')}
             </Button>
           </div>
         )}
@@ -215,7 +217,7 @@ export function DispositionWorkspace({
                 className="flex items-center justify-between gap-3 rounded-md border border-primary/30 bg-primary-soft/20 px-3 py-2 text-sm"
               >
                 <span>
-                  「<code className="font-mono">{s.ruleId}</code>」× {s.count} 处待处置
+                  {t('disposition.batchSuggestionPrefix')}<code className="font-mono">{s.ruleId}</code>{t('disposition.batchSuggestionSuffix', { count: s.count })}
                 </span>
                 <Button
                   type="button"
@@ -225,7 +227,7 @@ export function DispositionWorkspace({
                   onClick={() => onBatchByRule(s.ruleId, 'replace')}
                   data-testid={`batch-suggest-${s.ruleId}`}
                 >
-                  一键替换为化名
+                  {t('disposition.batchReplace')}
                 </Button>
               </div>
             ))}

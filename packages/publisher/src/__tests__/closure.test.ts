@@ -3,25 +3,16 @@ import { applyDispositions, compileRuleset, scanSession, setDispositions } from 
 import { describe, expect, it } from 'vitest';
 
 import {
-  type CommandRunner,
-  type RunResult,
-  exportSession,
-  planContribution,
-  precheckRecord,
-  stageContribution,
+  compileContributionBundle,
 } from '../index.js';
-import { FAKE_GITHUB_PAT, SANITIZER_PACKAGE_VERSION, makeMessage } from './_fixtures.js';
+import {
+  FAKE_GITHUB_PAT,
+  GITLEAKS_PIN,
+  SANITIZER_PACKAGE_VERSION,
+  makeMessage,
+} from './_fixtures.js';
 
 const AT = '2026-07-07T00:00:00.000Z';
-
-/** Records commands; reports git+gh present but performs nothing real. */
-class HermeticRunner implements CommandRunner {
-  calls: string[] = [];
-  run(command: string, args: string[]): RunResult {
-    this.calls.push(`${command} ${args.join(' ')}`);
-    return { code: 0, stdout: '', stderr: '' };
-  }
-}
 
 /** A RAW (unsanitized) session as it comes out of the readers, with a fake leak. */
 function rawSession(): SanitizedSession {
@@ -51,8 +42,8 @@ function rawSession(): SanitizedSession {
   };
 }
 
-describe('v0.1 loop closure (read → scan → gate → export → pre-check → PR-prep)', () => {
-  it('carries a fake session through the whole pipeline to a staged, dry-run PR', () => {
+describe('v0.1 content loop closure (read → scan → gate → pure contribution bundle)', () => {
+  it('carries a fake session through the whole pipeline to exact sealed-ready bytes', () => {
     // read → scan
     const raw = rawSession();
     const ruleset = compileRuleset({ generatedAt: AT });
@@ -69,29 +60,34 @@ describe('v0.1 loop closure (read → scan → gate → export → pre-check →
     expect(applied.session.meta.sanitized).toBe(true);
     expect(applied.session.meta.sanitizationRulesetVersion).toBe(ruleset.rulesetVersion);
 
-    // export the stamped envelope
-    const record = exportSession(applied.session, {
+    // The pure compiler exports, prechecks, hashes, and renders the complete
+    // target-independent contract in one synchronous in-memory operation.
+    const bundle = compileContributionBundle([applied.session], {
+      ruleset,
       sanitizerPackageVersion: SANITIZER_PACKAGE_VERSION,
-    });
-    // The published bytes no longer contain the raw secret.
-    expect(record.jsonl).not.toContain(FAKE_GITHUB_PAT);
-
-    // mandatory pre-check on the exact bytes → passes now that the secret is gone
-    const precheck = precheckRecord(record.jsonl, { generatedAt: AT });
-    expect(precheck.ok).toBe(true);
-
-    // PR-prep (dry-run) → the contribution stages cleanly, no live external PR
-    const runner = new HermeticRunner();
-    const plan = planContribution(applied.session, {
-      targetRepo: '/tmp/does-not-matter',
-      sanitizerPackageVersion: SANITIZER_PACKAGE_VERSION,
-      runner,
+      gitleaksVersion: GITLEAKS_PIN,
       generatedAt: AT,
     });
-    expect(plan.branch).toBe('contrib/CONTRIBUTOR/loop-1');
-    expect(plan.provenance.sanitizationRulesetVersion).toBe(ruleset.rulesetVersion);
+    const recordFile = bundle.files.find((file) => file.kind === 'record')!;
+    const provenanceFile = bundle.files.find((file) => file.kind === 'provenance')!;
+    const publishedRecord = JSON.parse(recordFile.contents) as SanitizedSession;
 
-    // No network / no live PR was invoked anywhere in the loop.
-    expect(runner.calls.every((c) => !c.includes('pr create') && !c.includes('push'))).toBe(true);
+    expect(recordFile.contents).not.toContain(FAKE_GITHUB_PAT);
+    expect(recordFile.contents.endsWith('\n')).toBe(true);
+    expect(publishedRecord.messages).toEqual(applied.session.messages);
+    expect(publishedRecord.session.projectKey).toBe('redacted-project');
+    expect(JSON.parse(provenanceFile.contents)).toMatchObject({
+      sanitizationRulesetVersion: ruleset.rulesetVersion,
+      sanitizerPackageVersion: SANITIZER_PACKAGE_VERSION,
+      gitleaksVersion: GITLEAKS_PIN,
+    });
+    expect(bundle.branch).toMatch(/^contrib\/%3CCONTRIBUTOR%3E\/loop-1-[0-9a-f]{8}$/);
+    expect(bundle.contentDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(bundle.totalBytes).toBe(bundle.files.reduce((total, file) => total + file.bytes, 0));
+    expect(bundle).not.toHaveProperty('targetRepo');
+    expect(bundle).not.toHaveProperty('workspace');
+    expect(bundle).not.toHaveProperty('commands');
+    expect(bundle).not.toHaveProperty('ghAvailable');
+    expect(bundle).not.toHaveProperty('delivery');
   });
 });

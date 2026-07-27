@@ -11,8 +11,11 @@ import type { JsonlEntry } from '../types.js';
 
 describe('encodeProjectPath', () => {
   it('encodes a Windows cwd to its on-disk slug (no collapse, no trim)', () => {
-    const input = 'C:\\Users\\Sayo\\AppData\\Roaming\\@waifuoid\\elftia\\clawia';
-    expect(encodeProjectPath(input)).toBe('C--Users-Sayo-AppData-Roaming--waifuoid-elftia-clawia');
+    const input =
+      '%USERPROFILE%\\AppData\\Roaming\\@waifuoid\\elftia\\clawia';
+    expect(encodeProjectPath(input)).toBe(
+      '-USERPROFILE--AppData-Roaming--waifuoid-elftia-clawia',
+    );
   });
 });
 

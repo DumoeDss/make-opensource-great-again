@@ -1,10 +1,25 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ApiClient } from '../api/client';
 import { SettingsPage } from '../components/SettingsPage';
-import type { CustomProviderInput, KeyStatusMap, ProviderTarget } from '../api/types';
+import type {
+  CustomProviderInput,
+  KeyStatusMap,
+  ProviderTarget,
+  PublicationStatus,
+} from '../api/types';
+import { initLanguage, setLanguage } from '../lib/lang';
+import {
+  blockedStatus,
+  directStatus,
+  forkConfirmationStatus,
+  loginRequiredStatus,
+  publicationError,
+  publicationTarget,
+  unconfiguredStatus,
+} from './publicationFixtures';
 
 afterEach(cleanup);
 
@@ -22,18 +37,25 @@ const DEEPSEEK: ProviderTarget = {
  * A stateful fake ApiClient: custom providers + key status live in mutable maps
  * so a create/set/delete + refresh reflects in the next render.
  */
-function makeClient(): ApiClient {
+function makeClient(initialPublication: PublicationStatus = unconfiguredStatus()): ApiClient {
   const custom = new Map<string, ProviderTarget>();
   const keys: KeyStatusMap = {};
+  let publication = initialPublication;
   const client = {
     getHealth: vi.fn(async () => ({ name: 'mosga-daemon', version: '0.1.0' })),
-    getPreflight: vi.fn(async () => ({
-      dataRepoConfigured: false,
-      gitAvailable: true,
-      ghAvailable: true,
-      ghAuthenticated: true,
-      repoClean: true,
-    })),
+    inspectPublication: vi.fn(async () => ({ ok: true as const, data: publication })),
+    configurePublicationTarget: vi.fn(async (repository: string) => {
+      publication = {
+        ...directStatus(),
+        target: publicationTarget({ slug: repository }),
+        pushRepository: repository,
+      };
+      return { ok: true as const, data: publication };
+    }),
+    clearPublicationTarget: vi.fn(async () => {
+      publication = unconfiguredStatus(publication.revision + 1);
+      return { ok: true as const, data: publication };
+    }),
     listProviders: vi.fn(async () => [DEEPSEEK, ...custom.values()]),
     listCustomProviders: vi.fn(async () => [...custom.values()]),
     getKeyStatus: vi.fn(async () => ({ ...keys })),
@@ -186,5 +208,171 @@ describe('SettingsPage — write-only key entry', () => {
     await findByTestId('key-clear-deepseek');
     expect(queryByTestId('key-input-deepseek')).toBeNull();
     expect(container.innerHTML).not.toContain(NEW_KEY);
+  });
+});
+
+describe('SettingsPage — GitHub publication target', () => {
+  it('saves the exact owner/repo draft and renders returned server truth', async () => {
+    const client = makeClient();
+    render(<SettingsPage client={client} />);
+    const input = await screen.findByLabelText('Canonical repository');
+    fireEvent.change(input, { target: { value: 'community/dataset' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save and validate' }));
+    await waitFor(() => {
+      expect(client.configurePublicationTarget).toHaveBeenCalledWith('community/dataset');
+    });
+    expect(await screen.findByText('Ready · direct')).toBeTruthy();
+    expect(screen.getAllByText('community/dataset')).toHaveLength(2);
+  });
+
+  it('treats an HTTP-success blocked status as blocked, including no-target', async () => {
+    const client = makeClient();
+    client.configurePublicationTarget = vi.fn(async () => ({
+      ok: true as const,
+      data: blockedStatus(false),
+    }));
+    render(<SettingsPage client={client} />);
+    fireEvent.change(await screen.findByLabelText('Canonical repository'), {
+      target: { value: 'community/dataset' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save and validate' }));
+    expect(await screen.findByText('Blocked')).toBeTruthy();
+    expect(screen.getByText(/details are unavailable/i)).toBeTruthy();
+    expect(screen.queryByText('community/dataset')).toBeNull();
+  });
+
+  it('keeps invalid input editable and displays curated server validation', async () => {
+    const client = makeClient();
+    const invalid = publicationError({
+      code: 'invalid_target',
+      phase: 'target',
+      message: 'Choose one public repository in owner/repo form.',
+      retryable: false,
+      recovery: 'Correct the repository slug and save again.',
+    });
+    client.configurePublicationTarget = vi.fn(async () => ({ ok: false as const, error: invalid }));
+    render(<SettingsPage client={client} />);
+    const input = await screen.findByLabelText('Canonical repository');
+    fireEvent.change(input, { target: { value: 'https://github.com/community/dataset' } });
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(
+      (screen.getByRole('button', { name: 'Save and validate' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    fireEvent.change(input, { target: { value: 'community/dataset' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save and validate' }));
+    expect((await screen.findByRole('alert')).textContent).toContain(invalid.message);
+    expect((input as HTMLInputElement).value).toBe('community/dataset');
+  });
+
+  it('refreshes from the daemon and clears with explicit confirmation', async () => {
+    const client = makeClient(directStatus());
+    render(<SettingsPage client={client} />);
+    await screen.findByText('Ready · direct');
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
+    await waitFor(() => expect(client.inspectPublication).toHaveBeenCalledTimes(2));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear target' }));
+    expect(screen.getByText(/invalidates unsubmitted previews/i)).toBeTruthy();
+    fireEvent.click(screen.getByTestId('clear-publication-target-ok-btn'));
+    await waitFor(() => expect(client.clearPublicationTarget).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('Unconfigured')).toBeTruthy();
+    expect(screen.getByText(/Existing remote forks, branches, and pull requests were not deleted/i))
+      .toBeTruthy();
+  });
+
+  it.each([
+    [unconfiguredStatus(), 'Unconfigured'],
+    [loginRequiredStatus(), 'Login required'],
+    [forkConfirmationStatus(), 'Fork confirmation required'],
+    [directStatus(), 'Ready · direct'],
+    [blockedStatus(), 'Blocked'],
+  ] as const)('renders the exact %s readiness state', async (status, label) => {
+    render(<SettingsPage client={makeClient(status)} />);
+    expect(await screen.findByText(label)).toBeTruthy();
+    cleanup();
+  });
+
+  it('has keyboard labels and no legacy or forbidden publication disclosure', async () => {
+    const client = makeClient({
+      ...directStatus(),
+      target: publicationTarget({
+        url: 'https://example.invalid/raw-target-url',
+        slug: `${'longowner'.repeat(8)}/${'longrepo'.repeat(10)}`,
+      }),
+    });
+    const { container } = render(<SettingsPage client={client} />);
+    const repositoryInput = await screen.findByLabelText('Canonical repository');
+    expect(repositoryInput.getAttribute('aria-describedby')).toBe(
+      'publication-repository-help',
+    );
+    const saveButton = screen.getByRole('button', { name: 'Save and validate' });
+    expect(saveButton.parentElement?.className).toContain('flex-col');
+    expect(saveButton.parentElement?.className).toContain('sm:flex-row');
+    const publicationPanel = await screen.findByTestId('settings-publication-target');
+    expect(publicationPanel.textContent).not.toContain('https://example.invalid/raw-target-url');
+    const forbiddenDisclosure = new RegExp(
+      [
+        ['data', 'repository'].join(' '),
+        'workspace',
+        ['remote', 'name'].join(' '),
+        ['git', 'push'].join(' '),
+        'stdout',
+        'stderr',
+        ['ghp', '_'].join(''),
+      ].join('|'),
+      'i',
+    );
+    expect(publicationPanel.textContent).not.toMatch(forbiddenDisclosure);
+    expect(container.textContent).not.toContain(['--data', 'repo'].join('-'));
+  });
+});
+
+describe('SettingsPage — language switcher', () => {
+  // The active language lives in `lang.ts` module state; reset to zh + clear
+  // storage so each switcher test starts from the same default.
+  beforeEach(() => {
+    setLanguage('zh');
+    window.localStorage.clear();
+  });
+
+  it('clicking an option persists to localStorage and marks it active', async () => {
+    const client = makeClient();
+    const { getByTestId } = render(<SettingsPage client={client} />);
+
+    // Default render: zh is the pressed option, ja is not.
+    expect(getByTestId('lang-zh').getAttribute('aria-pressed')).toBe('true');
+    expect(getByTestId('lang-ja').getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(getByTestId('lang-ja'));
+
+    // Persistence is synchronous (setLanguage writes before notifying i18next).
+    expect(window.localStorage.getItem('mosga-lang')).toBe('ja');
+    // The pressed button flips once react-i18next emits `languageChanged`.
+    await waitFor(() => {
+      expect(getByTestId('lang-ja').getAttribute('aria-pressed')).toBe('true');
+      expect(getByTestId('lang-zh').getAttribute('aria-pressed')).toBe('false');
+    });
+  });
+
+  it('a stored choice is the active option after initLanguage (reload)', () => {
+    // Simulate a fresh app start reading the persisted language from storage.
+    window.localStorage.setItem('mosga-lang', 'ko');
+    initLanguage();
+
+    const client = makeClient();
+    const { getByTestId } = render(<SettingsPage client={client} />);
+
+    expect(getByTestId('lang-ko').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('offers exactly the four endonym-labelled options, untranslated', () => {
+    const client = makeClient();
+    const { getByTestId } = render(<SettingsPage client={client} />);
+
+    expect(getByTestId('lang-toggle').textContent).toContain('中文');
+    expect(getByTestId('lang-toggle').textContent).toContain('日本語');
+    expect(getByTestId('lang-toggle').textContent).toContain('English');
+    expect(getByTestId('lang-toggle').textContent).toContain('한국어');
   });
 });
