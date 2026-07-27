@@ -10,14 +10,14 @@ const repositoryRoot = path.resolve(
 );
 
 describe('documented root build order', () => {
-  it('keeps replay-bundle between sanitizer and ui in scripts and README', () => {
+  it('keeps replay-bundle and replay-runtime between sanitizer and ui in scripts and README', () => {
     const packageJson = JSON.parse(
       readFileSync(path.join(repositoryRoot, 'package.json'), 'utf8'),
     ) as { scripts: { build: string; typecheck: string } };
     const workspaceSequence =
-      '@mosga/sanitizer && npm run build -w @mosga/replay-bundle && npm run build -w @mosga/ui';
+      '@mosga/sanitizer && npm run build -w @mosga/replay-bundle && npm run build -w @mosga/replay-runtime && npm run build -w @mosga/ui';
     const typecheckSequence =
-      '@mosga/sanitizer && npm run typecheck -w @mosga/replay-bundle && npm run typecheck -w @mosga/ui';
+      '@mosga/sanitizer && npm run typecheck -w @mosga/replay-bundle && npm run typecheck -w @mosga/replay-runtime && npm run typecheck -w @mosga/ui';
     expect(packageJson.scripts.build).toContain(workspaceSequence);
     expect(packageJson.scripts.typecheck).toContain(typecheckSequence);
 
@@ -26,7 +26,7 @@ describe('documented root build order', () => {
       'utf8',
     );
     expect(readme).toContain(
-      'contracts → readers → sanitizer → replay-bundle → ui → daemon → publisher → direct-submit',
+      'contracts → readers → sanitizer → replay-bundle → replay-runtime → ui → daemon → publisher → direct-submit',
     );
   });
 });

@@ -1,0 +1,6 @@
+Usage: codex [options]
+CODEX_HOME isolated
+model_provider config supported
+base_url_env config supported
+env_key config supported
+wire_api = responses

@@ -30,5 +30,10 @@ export default defineConfig({
     // Default to node; UI component tests opt into jsdom per-file via a
     // `// @vitest-environment jsdom` header comment.
     environment: 'node',
+    // Real process-tree tests (Windows Job Object lifecycle, capability-probe
+    // descendant termination, executable-identity re-hash of ~75MB CLI binaries)
+    // legitimately exceed vitest's 5s default. 30s gives headroom while still
+    // failing a genuinely-hung test fast (a >120s hang trips at 30s, not never).
+    testTimeout: 30_000,
   },
 });
