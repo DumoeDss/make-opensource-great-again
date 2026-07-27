@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from './dialog';
+import { Button } from './button';
 
 export interface ConfirmDialogProps {
   open: boolean;
@@ -27,6 +28,8 @@ export interface ConfirmDialogProps {
   onConfirm: () => void;
   /** Root testid; the ok/cancel buttons derive `${testid}-ok-btn`/`-cancel-btn`. */
   testid?: string;
+  /** Explicit trigger for controlled dialogs so focus restoration is deterministic. */
+  returnFocusRef?: React.RefObject<HTMLElement>;
 }
 
 export function ConfirmDialog({
@@ -39,7 +42,10 @@ export function ConfirmDialog({
   variant = 'destructive',
   onConfirm,
   testid = 'dialog-confirm',
+  returnFocusRef,
 }: ConfirmDialogProps) {
+  const capturedFocusRef = React.useRef<HTMLElement | null>(null);
+
   const handleConfirm = () => {
     onOpenChange(false);
     onConfirm();
@@ -47,7 +53,24 @@ export function ConfirmDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm" hideCloseButton data-testid={testid}>
+      <DialogContent
+        className="max-w-sm"
+        hideCloseButton
+        data-testid={testid}
+        onOpenAutoFocus={() => {
+          if (!returnFocusRef?.current && document.activeElement instanceof HTMLElement) {
+            capturedFocusRef.current = document.activeElement;
+          }
+        }}
+        onCloseAutoFocus={(event) => {
+          const target = returnFocusRef?.current ?? capturedFocusRef.current;
+          capturedFocusRef.current = null;
+          if (target?.isConnected) {
+            event.preventDefault();
+            target.focus();
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {description ? (
@@ -55,26 +78,24 @@ export function ConfirmDialog({
           ) : null}
         </DialogHeader>
         <DialogFooter className="gap-2 sm:gap-0">
-          <button
+          <Button
+            type="button"
+            variant="secondary"
             onClick={() => onOpenChange(false)}
             data-testid={`${testid}-cancel-btn`}
-            className="px-4 py-2 text-sm rounded-lg border border-border text-foreground hover:bg-surface-1 transition-colors"
           >
             {cancelLabel}
-          </button>
-          <button
+          </Button>
+          <Button
+            type="button"
+            variant={variant === 'destructive' ? 'destructive' : 'default'}
             onClick={handleConfirm}
             data-testid={`${testid}-ok-btn`}
             data-variant={variant}
-            className={cn(
-              'px-4 py-2 text-sm rounded-lg transition-colors',
-              variant === 'destructive'
-                ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
-                : 'bg-primary text-primary-foreground hover:bg-primary/90',
-            )}
+            className={cn('px-4')}
           >
             {confirmLabel}
-          </button>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

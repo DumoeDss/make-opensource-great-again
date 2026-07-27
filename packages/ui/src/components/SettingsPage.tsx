@@ -1,11 +1,9 @@
 /**
  * SettingsPage — the 设置 destination: a three-state theme toggle
  * (light / dark / system) driving `lib/theme.ts`, the daemon address + health
- * (`useDaemonStatus`), the read-only data-repo status, and the INTERACTIVE
- * provider surface: the allowlisted vendor presets (read-only) plus custom
- * providers (add / edit / delete) and per-provider API-key set/clear. Key entry
- * is write-only — the page shows only a `configured` status, never a key value,
- * and discloses that a submitted key is stored encrypted at rest.
+ * (`useDaemonStatus`), one server-owned GitHub publication target, and the
+ * interactive provider surface. Provider key entry remains write-only: the page
+ * shows only configured state and never reads a stored value back.
  */
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
@@ -15,7 +13,11 @@ import { API_FORMATS, type ApiFormat, type KeyStatusMap, type ProviderTarget } f
 import { cn } from '../lib/cn';
 import { getTheme, setTheme, subscribe, type ThemeChoice } from '../lib/theme';
 import { useDaemonStatus } from '../lib/useDaemonStatus';
-import { usePreflight } from '../lib/usePreflight';
+import { usePublication } from '../lib/usePublication';
+import { PublicationStatusView } from './publication/PublicationStatusView';
+import { Button } from './ui/button';
+import { ConfirmDialog } from './ui/confirm-dialog';
+import { Input } from './ui/input';
 
 interface SettingsPageProps {
   client: ApiClient;
@@ -43,6 +45,19 @@ const EMPTY_FORM: ProviderFormState = {
   apiFormat: 'openai',
 };
 
+function validRepositorySlug(value: string): boolean {
+  if (
+    value.length < 3 ||
+    value.length > 140 ||
+    value.trim() !== value ||
+    !/^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(value)
+  ) {
+    return false;
+  }
+  const [owner, repo] = value.split('/');
+  return owner !== '.' && owner !== '..' && repo !== '.' && repo !== '..';
+}
+
 export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
   const [theme, setThemeState] = useState<ThemeChoice>(getTheme());
   const [providers, setProviders] = useState<ProviderTarget[]>([]);
@@ -56,9 +71,12 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
   const [form, setForm] = useState<ProviderFormState>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [repositoryDraft, setRepositoryDraft] = useState('');
+  const [repositoryFeedback, setRepositoryFeedback] = useState<string | null>(null);
+  const [clearTargetOpen, setClearTargetOpen] = useState(false);
 
   const daemon = useDaemonStatus(client);
-  const { flags } = usePreflight(client);
+  const publication = usePublication(client);
 
   useEffect(() => subscribe(setThemeState), []);
 
@@ -184,6 +202,40 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
     }
   };
 
+  const savePublicationTarget = async (): Promise<void> => {
+    setRepositoryFeedback(null);
+    if (!validRepositorySlug(repositoryDraft)) {
+      setRepositoryFeedback(
+        'Enter one canonical repository as owner/repo. URLs, spaces, and local paths are not accepted.',
+      );
+      return;
+    }
+    const next = await publication.configure(repositoryDraft);
+    if (next) {
+      setRepositoryFeedback(
+        next.state === 'ready' || next.state === 'fork_confirmation_required'
+          ? 'Target saved and readiness refreshed.'
+          : 'Target saved. Review the daemon status below before publishing.',
+      );
+    }
+  };
+
+  const refreshPublicationTarget = async (): Promise<void> => {
+    setRepositoryFeedback(null);
+    const next = await publication.refresh();
+    if (next) setRepositoryFeedback('Publication status refreshed from the daemon.');
+  };
+
+  const clearPublicationTarget = async (): Promise<void> => {
+    const next = await publication.clear();
+    if (next) {
+      setRepositoryDraft('');
+      setRepositoryFeedback(
+        'Local target configuration and unsubmitted previews were cleared. Existing remote forks, branches, and pull requests were not deleted.',
+      );
+    }
+  };
+
   return (
     <div className="mx-auto max-w-2xl space-y-6" data-testid="settings-page">
       <h1 className="text-xl font-semibold">设置</h1>
@@ -236,22 +288,120 @@ export function SettingsPage({ client }: SettingsPageProps): JSX.Element {
         </div>
       </section>
 
-      <section className="space-y-2">
-        <h2 className="text-sm font-medium text-text-muted">数据仓库（出口①，只读）</h2>
-        <div className="rounded-md border border-border bg-surface-1 p-3 text-sm" data-testid="settings-data-repo">
-          <div className="flex items-center justify-between">
-            <span className="text-text-muted">状态</span>
-            <span data-testid="settings-data-repo-status">
-              {flags == null ? '检测中…' : flags.dataRepoConfigured ? '已配置' : '未配置'}
-            </span>
+      <section className="space-y-2" aria-labelledby="publication-target-heading">
+        <h2 id="publication-target-heading" className="text-sm font-medium text-text-muted">
+          GitHub publication target
+        </h2>
+        <div
+          className="min-w-0 space-y-4 rounded-md border border-border bg-surface-1 p-3 text-sm"
+          data-testid="settings-publication-target"
+        >
+          <div className="space-y-1.5">
+            <label htmlFor="publication-repository" className="font-medium">
+              Canonical repository
+            </label>
+            <Input
+              id="publication-repository"
+              value={repositoryDraft}
+              onChange={(event) => {
+                setRepositoryDraft(event.target.value);
+                setRepositoryFeedback(null);
+              }}
+              placeholder="owner/repo"
+              autoComplete="off"
+              spellCheck={false}
+              aria-describedby="publication-repository-help"
+              aria-invalid={
+                repositoryDraft.length > 0 && !validRepositorySlug(repositoryDraft)
+              }
+              disabled={publication.pendingMutation !== null}
+              className="font-mono"
+            />
+            <p id="publication-repository-help" className="text-xs text-text-subtle">
+              Enter one public GitHub repository as owner/repo. The daemon validates
+              compatibility and decides the direct or fork route.
+            </p>
           </div>
-          <p className="mt-2 text-xs text-text-subtle">
-            数据仓库路径是服务端信任配置，仅可在启动时以{' '}
-            <code className="font-mono">--data-repo &lt;路径&gt;</code>{' '}
-            指定，不经界面填写、不经 HTTP 回显。修改请以该参数重启 daemon。
-          </p>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void savePublicationTarget()}
+              disabled={
+                publication.pendingMutation !== null ||
+                !validRepositorySlug(repositoryDraft)
+              }
+            >
+              {publication.pendingMutation === 'configure'
+                ? 'Saving…'
+                : 'Save and validate'}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => void refreshPublicationTarget()}
+              disabled={
+                publication.pendingMutation !== null ||
+                publication.loadState === 'loading'
+              }
+            >
+              {publication.loadState === 'loading' ? 'Refreshing…' : 'Refresh status'}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => setClearTargetOpen(true)}
+              disabled={
+                publication.pendingMutation !== null ||
+                publication.status?.state === 'unconfigured'
+              }
+            >
+              Clear target
+            </Button>
+          </div>
+
+          <div aria-live="polite" data-testid="publication-status-live">
+            {publication.loadState === 'loading' && (
+              <p className="text-text-muted">Loading publication status from the daemon…</p>
+            )}
+            {publication.status && (
+              <PublicationStatusView status={publication.status} detail="full" />
+            )}
+            {repositoryFeedback && (
+              <p className="mt-2 break-words text-sm text-text-muted">
+                {repositoryFeedback}
+              </p>
+            )}
+          </div>
+
+          {publication.error && (
+            <div
+              role="alert"
+              className="break-words rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive"
+              data-testid="publication-target-error"
+            >
+              <p>{publication.error.message}</p>
+              {publication.error.recovery && (
+                <p className="mt-1">{publication.error.recovery}</p>
+              )}
+            </div>
+          )}
         </div>
       </section>
+
+      <ConfirmDialog
+        open={clearTargetOpen}
+        onOpenChange={setClearTargetOpen}
+        title="Clear GitHub publication target?"
+        description="This clears local target configuration and invalidates unsubmitted previews. Existing remote forks, branches, and pull requests are not deleted."
+        confirmLabel={publication.pendingMutation === 'clear' ? 'Clearing…' : 'Clear target'}
+        cancelLabel="Cancel"
+        onConfirm={() => void clearPublicationTarget()}
+        testid="clear-publication-target"
+      />
 
       {error && (
         <div

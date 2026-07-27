@@ -169,19 +169,15 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
     if (fn) fn();
   };
 
-  // The publish wizard's `precheck_refused` view jumps back to step ② and asks the
-  // disposition workspace to select the group holding the named rule.
-  const onJumpToRule = (ruleId: string): void => {
-    setFocusRuleId(ruleId);
-    setActiveStep(2);
-  };
-
-  // The BATCH wizard's per-session refusal jumps to that session's step ②.
-  const onJumpToSession = (reviewId: string, ruleId: string): void => {
+  // Publication attribution returns to the affected review and voids the
+  // queue-wide affirmation because the user must inspect disposition state again.
+  const onJumpToPublicationIssue = (reviewId: string, ruleId?: string): void => {
     const idx = states.findIndex((s) => s.reviewId === reviewId);
     if (idx === -1) return;
     selectItem(idx);
-    setFocusRuleId(ruleId);
+    setAffirmed(false);
+    setCompleted(false);
+    setFocusRuleId(ruleId ?? null);
     setActiveStep(2);
   };
 
@@ -400,7 +396,7 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
               items={batchItems}
               onPublished={() => setCompleted(true)}
               onSubmittedAll={() => setCompleted(true)}
-              onJumpToSession={onJumpToSession}
+              onJumpToSession={onJumpToPublicationIssue}
               requireAffirm={requireAffirm}
             />
           ) : (
@@ -413,7 +409,7 @@ export function ReviewView({ client, items, onRestart }: ReviewViewProps): JSX.E
               onExport={() => void onExport()}
               onSubmitted={() => setCompleted(true)}
               onPublished={() => setCompleted(true)}
-              onJumpToRule={onJumpToRule}
+              onJumpToReviewIssue={onJumpToPublicationIssue}
               requireAffirm={requireAffirm}
             />
           ))}
